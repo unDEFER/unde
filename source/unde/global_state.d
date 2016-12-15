@@ -42,6 +42,13 @@ mixin template init_deinitBDB(bool main_thread = false)
     void initBDB(bool force_recover = false)
     {
         string home = getenv("HOME".toStringz()).to!string();
+        version(Windows)
+        {
+            if (!home.startsWith("/home"))
+            {
+                throw new Exception("Please run under Cygwin environment. Read README.");
+            }
+        }
 
         try{
             mkdir(home ~ "/.unde");

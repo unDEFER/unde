@@ -527,7 +527,7 @@ copy_path(FMGlobalState cgs, PathMnt path, string copy_to, bool remove_flag, Tid
 
                                     if (disk_usage < cur_rectsize.disk_usage)
                                     {
-                                        writefln("%s < %s", disk_usage, cur_rectsize.disk_usage);
+                                        //writefln("%s < %s", disk_usage, cur_rectsize.disk_usage);
                                         cgs.commit();
                                         cgs.recommit();
                                         Thread.sleep( dur!("msecs")( 200 ) );

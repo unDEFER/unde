@@ -1,0 +1,8 @@
+unde (0.1.0) UNRELEASED; urgency=medium
+
+  * Initial release. Provides:
+  * File manager;
+  * Text viewer;
+  * Image viewer.
+
+ -- Nikolay (unDEFER) Krivchenkov <undefer@gmail.com>  Sun, 11 Dec 2016 11:17:10 +0300

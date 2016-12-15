@@ -44,7 +44,8 @@ mixin template init_deinitBDB(bool main_thread = false)
         string home = getenv("HOME".toStringz()).to!string();
         version(Windows)
         {
-            if (!home.startsWith("/home"))
+	    if (!home.startsWith("C:\\cygwin\\home") &&
+			!home.startsWith("D:\\cygwin\\home"))
             {
                 throw new Exception("Please run under Cygwin environment. Read README.");
             }

@@ -96,7 +96,7 @@ class Font
 
             if (surface)
             {
-                chars_cache[charsize] = Texture_Tick(surface.w, surface.h, texture, SDL_GetTicks());
+                chars_cache[charsize] = Texture_Tick(surface.w, surface.h, [], texture, SDL_GetTicks());
                 SDL_FreeSurface(surface);
                 last_chars_cache_use = SDL_GetTicks();
                 st = charsize in chars_cache;
@@ -145,12 +145,13 @@ class Font
 
                 if (line_width > 0)
                 {
-                    if (line_ax + st.w > line_width)
+                    if (line_ax + st.w > line_width || chr == "\n")
                     {
                         if (line_ax > rect.w) rect.w = line_ax;
                         line_ax = 0;
                         line_ay += line_height;
                         lines++;
+                        if (chr == "\n") continue;
                     }
                 }
 
@@ -170,6 +171,7 @@ class Font
     get_line_from_cache(string text, 
             int size, int line_width, int line_height, SDL_Color color)
     {
+        text ~= " ";
         auto linesize = LineSize(text, size, line_width, line_height, color);
         auto tt = linesize in lines_cache;
         if (tt)
@@ -221,6 +223,9 @@ class Font
             long line_ax = 0;
             long line_ay = 0;
 
+            SDL_Rect[] chars = [];
+
+            ssize_t index;
             try
             {
                 foreach (dchar c; text)
@@ -229,21 +234,26 @@ class Font
                     auto st = get_char_from_cache(chr, size, color);
                     if (!st) continue;
 
-                    if (line_width > 0)
-                    {
-                        if (line_ax + st.w > line_width)
-                        {
-                            line_ax = 0;
-                            line_ay += line_height;
-                            lines++;
-                        }
-                    }
-
                     SDL_Rect dst;
                     dst.x = cast(int)line_ax;
                     dst.y = cast(int)line_ay;
                     dst.w = st.w;
                     dst.h = st.h;
+
+                    chars.length = index+1;
+                    chars[index] = dst;
+                    index += chr.length;
+
+                    if (line_width > 0)
+                    {
+                        if (line_ax + st.w > line_width || chr == "\n")
+                        {
+                            line_ax = 0;
+                            line_ay += line_height;
+                            lines++;
+                            if (chr == "\n") continue;
+                        }
+                    }
                     /*writefln("%s - %s, %s, %s, %s",
                             line, dst.x, dst.y, dst.w, dst.h);*/
 
@@ -269,7 +279,7 @@ class Font
                         SDL_GetError().to!string() ));
             }
 
-            lines_cache[linesize] = Texture_Tick(rect.w, rect.h, texture, SDL_GetTicks());
+            lines_cache[linesize] = Texture_Tick(rect.w, rect.h, chars, texture, SDL_GetTicks());
             last_lines_cache_use = SDL_GetTicks();
             tt = linesize in lines_cache;
         }

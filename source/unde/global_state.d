@@ -33,6 +33,7 @@ import std.file;
 struct Texture_Tick
 {
     int w, h;
+    SDL_Rect[] chars;
     SDL_Texture* texture;
     long tick;
 }
@@ -382,6 +383,15 @@ struct Text_Viewer_State{
     Font font;
 }
 
+struct Command_Line_State{
+    bool enter;
+    bool ctrl;
+    bool shift;
+    string command;
+    ssize_t pos;
+    bool just_started_input;
+}
+
 class GlobalState
 {
 	SDL_Window* window;
@@ -401,6 +411,7 @@ class GlobalState
     State state;
     Image_Viewer_State image_viewer;
     Text_Viewer_State text_viewer;
+    Command_Line_State command_line;
 
     CoordinatesPlusScale screen;
     double mousex, mousey;
@@ -473,6 +484,7 @@ class GlobalState
     SDL_Texture* texture_white;
     SDL_Texture* texture_black;
     SDL_Texture* texture_blue;
+    SDL_Texture* texture_cursor;
     Gradient grad;
 
     void createWindow()
@@ -555,6 +567,11 @@ class GlobalState
         (cast(uint*) surface.pixels)[0] = 0x800000FF;
 
         texture_blue =
+            SDL_CreateTextureFromSurface(renderer, surface);
+
+        (cast(uint*) surface.pixels)[0] = 0xFFA0A0FF;
+
+        texture_cursor =
             SDL_CreateTextureFromSurface(renderer, surface);
 
         text_viewer.texture = SDL_CreateTexture(renderer,

@@ -194,7 +194,7 @@ get_image_from_cache(GlobalState gs,
             {
                 auto image_texture =
                     SDL_CreateTextureFromSurface(gs.renderer, image);
-                image_cache[p] = Texture_Tick(image.w, image.h, image_texture, SDL_GetTicks());
+                image_cache[p] = Texture_Tick(image.w, image.h, [], image_texture, SDL_GetTicks());
                 SDL_FreeSurface(image);
                 last_image_cache_use = SDL_GetTicks();
                 st = path in image_cache;

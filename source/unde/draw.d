@@ -10,6 +10,7 @@ import unde.marks;
 import unde.file_manager.find_path;
 import unde.viewers.image_viewer.lib;
 import unde.viewers.text_viewer.lib;
+import unde.command_line.lib;
 import unde.tick;
 import unde.path_mnt;
 import unde.clickable;
@@ -333,11 +334,9 @@ void draw_messages(GlobalState gs)
 
             if (mes.texture == null && mes.message != "")
             {
-                /* EN: Render text to surface
-                   RU: Рендерим текст в surface */
                 int line_height = cast(int)(round(SQRT2^^9)*1.2);
                 auto tt = gs.text_viewer.font.get_line_from_cache(mes.message, 
-                        9, gs.screen.w, line_height, mes.color);
+                        9, gs.screen.w - 80, line_height, mes.color);
                 if (!tt && !tt.texture)
                 {
                     throw new Exception("Can't create text_surface: "~
@@ -347,8 +346,6 @@ void draw_messages(GlobalState gs)
                 mes.w = tt.w;
                 mes.h = tt.h;
 
-                /* EN: Render text to texture
-                   RU: Рендерим текст в текстуру */
                 mes.texture = tt.texture;
             }
 
@@ -438,6 +435,7 @@ void draw_screen(GlobalState gs, DbTxn txn)
     }
 
     draw_messages(gs);
+    draw_command_line(gs);
     remark_desktop(gs);
 
     SDL_SetRenderTarget(gs.renderer, null);

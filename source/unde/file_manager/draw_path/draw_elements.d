@@ -219,7 +219,7 @@ draw_picture(GlobalState gs,
                     auto image_texture =
                         SDL_CreateTextureFromSurface(gs.renderer, surface);
 
-                    image_cache[p] = Texture_Tick(surface.w, surface.h, image_texture, SDL_GetTicks());
+                    image_cache[p] = Texture_Tick(surface.w, surface.h, [], image_texture, SDL_GetTicks());
                     SDL_FreeSurface(surface);
                     last_image_cache_use = SDL_GetTicks();
                     st = p in image_cache;

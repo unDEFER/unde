@@ -6,6 +6,8 @@ import unde.lib;
 static import unde.file_manager.events;
 static import unde.viewers.image_viewer.events;
 static import unde.viewers.text_viewer.events;
+static import unde.command_line.events;
+import unde.command_line.events: CommandLineEventHandlerResult;
 
 import derelict.sdl2.sdl;
 import berkeleydb.all;
@@ -62,17 +64,21 @@ void process_events(GlobalState gs)
     /* Grab all the events off the queue. */
     while( SDL_PollEvent( &event ) )
     {
-        final switch (gs.state)
+        auto result = unde.command_line.events.process_event(gs, event);
+        if (result == CommandLineEventHandlerResult.Pass)
         {
-            case State.FileManager:
-                unde.file_manager.events.process_event(gs, event);
-                break;
-            case State.ImageViewer:
-                unde.viewers.image_viewer.events.process_event(gs, event);
-                break;
-            case State.TextViewer:
-                unde.viewers.text_viewer.events.process_event(gs, event);
-                break;
+            final switch (gs.state)
+            {
+                case State.FileManager:
+                    unde.file_manager.events.process_event(gs, event);
+                    break;
+                case State.ImageViewer:
+                    unde.viewers.image_viewer.events.process_event(gs, event);
+                    break;
+                case State.TextViewer:
+                    unde.viewers.text_viewer.events.process_event(gs, event);
+                    break;
+            }
         }
     }
 }

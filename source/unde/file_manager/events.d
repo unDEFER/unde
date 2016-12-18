@@ -422,7 +422,6 @@ void process_event(GlobalState gs, ref SDL_Event event)
     switch( event.type )
     {
         case SDL_TEXTINPUT:
-            /* Add new text onto the end of our text */
             RectSize rectsize = getRectSize(gs);
             if (rectsize.show_info == InfoType.CreateDirectory ||
                     rectsize.show_info == InfoType.Copy ||

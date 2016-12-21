@@ -1191,6 +1191,10 @@ check_scanners(GlobalState gs)
                     {
                         gs.changers_rights.remove(tid);
                     }
+                    else if (tid in gs.commands)
+                    {
+                        gs.commands.remove(tid);
+                    }
                     else
                     {
                         throw new Exception("UNKNOWN TID");

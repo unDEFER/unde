@@ -4,7 +4,8 @@ import unde.global_state;
 import unde.lib;
 import unde.tick;
 import unde.marks;
-import unde.viewers.text_viewer.lib;
+import unde.command_line.run;
+import unde.command_line.lib;
 
 import derelict.sdl2.sdl;
 
@@ -47,12 +48,26 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
                 writefln("Command line close");
                 gs.command_line.enter = false;
             }
+
+            if (gs.command_line.terminal)
+            {
+                gs.command_line.terminal = false;
+            }
+
             break;
 
         case SDL_SCANCODE_UP:
+            if (gs.command_line.enter)
+            {
+                hist_up(gs);
+            }
             break;
 
         case SDL_SCANCODE_DOWN:
+            if (gs.command_line.enter)
+            {
+                hist_down(gs);
+            }
             break;
 
         case SDL_SCANCODE_LEFT:
@@ -102,9 +117,25 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
                         command = (command[0..pos] ~
                                 "\n" ~
                                 command[pos..$]).idup();
-                        pos ++;
+                        pos++;
+                    }
+                    else
+                    {
+                        run_command(gs, command);
+                        command = "";
+                        pos = 0;
+                        SDL_StopTextInput();
+                        writefln("Command line close");
+                        gs.command_line.enter = false;
                     }
                 }
+
+                if (SDL_GetTicks() - last_enter < DOUBLE_DELAY)
+                {
+                    terminal = true;
+                }
+
+                last_enter = SDL_GetTicks();
             }
             break;
 
@@ -131,6 +162,11 @@ CommandLineEventHandlerResult
 process_event(GlobalState gs, ref SDL_Event event)
 {
     auto result = CommandLineEventHandlerResult.Pass;
+
+    if (gs.command_line.terminal)
+    {
+         result = CommandLineEventHandlerResult.Block;
+    }
 
     switch( event.type )
     {
@@ -181,15 +217,73 @@ process_event(GlobalState gs, ref SDL_Event event)
             break;
             
         case SDL_MOUSEMOTION:
+            if (gs.mouse_buttons & unDE_MouseButtons.Left)
+            {
+                with (gs.command_line)
+                {
+                    y += event.motion.yrel;
+                    last_redraw = 0;
+                }
+            }
+            gs.mouse_screen_x = event.motion.x;
+            gs.mouse_screen_y = event.motion.y;
+            gs.moved_while_click++;
             break;
             
         case SDL_MOUSEBUTTONDOWN:
+            switch (event.button.button)
+            {
+                case SDL_BUTTON_LEFT:
+                    gs.mouse_buttons |= unDE_MouseButtons.Left;
+                    gs.moved_while_click = 0;
+                    break;
+                case SDL_BUTTON_MIDDLE:
+                    gs.mouse_buttons |= unDE_MouseButtons.Middle;
+                    break;
+                case SDL_BUTTON_RIGHT:
+                    gs.mouse_buttons |= unDE_MouseButtons.Right;
+                    break;
+                default:
+                    break;
+            }
             break;
             
         case SDL_MOUSEBUTTONUP:
+            switch (event.button.button)
+            {
+                case SDL_BUTTON_LEFT:
+                    gs.mouse_buttons &= ~unDE_MouseButtons.Left;
+                    break;
+                case SDL_BUTTON_MIDDLE:
+                    gs.mouse_buttons &= ~unDE_MouseButtons.Middle;
+                    break;
+                case SDL_BUTTON_RIGHT:
+                    gs.mouse_buttons &= ~unDE_MouseButtons.Right;
+                    break;
+                default:
+                    break;
+            }
             break;
 
         case SDL_MOUSEWHEEL:
+            with (gs.command_line)
+            {
+                while (event.wheel.y > 0)
+                {
+                    fontsize++;
+                    event.wheel.y--;
+                }
+                while (event.wheel.y < 0)
+                {
+                    fontsize--;
+                    event.wheel.y++;
+                }
+
+                font_changed = true;
+                if (fontsize < 4) fontsize = 4;
+                if (fontsize > 15) fontsize = 15;
+                last_redraw = 0;
+            }
             break;
             
         case SDL_QUIT:

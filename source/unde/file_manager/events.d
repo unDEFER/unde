@@ -70,10 +70,11 @@ void process_key_down(GlobalState gs, SDL_Scancode scancode)
     { 
         case SDL_SCANCODE_Q:
             if (gs.current_path !in gs.enter_names)
-            {
-                make_screenshot(gs);
                 gs.finish=true;
-            }
+            break;
+
+        case SDL_SCANCODE_PRINTSCREEN:
+            make_screenshot(gs);
             break;
 
         case SDL_SCANCODE_M:

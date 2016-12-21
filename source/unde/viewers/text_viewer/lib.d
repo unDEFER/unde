@@ -251,6 +251,9 @@ draw_text(GlobalState gs)
                 throw new Exception(format("Error while restore render target: %s",
                         fromStringz(SDL_GetError()) ));
             }
+
+            font.clear_chars_cache();
+            font.clear_lines_cache();
         }
 
         if (path in gs.selection_hash)

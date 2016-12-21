@@ -10,6 +10,7 @@ version(FreeType)
 import unde.global_state;
 
 import core.exception;
+import core.memory;
 
 import std.math;
 import std.stdio;
@@ -111,19 +112,26 @@ class Font
     void
     clear_chars_cache()
     {
+        int cleared = 0;
         foreach(k, v; chars_cache)
         {
             if (v.tick < last_chars_cache_use - 30_000)
             {
+                cleared++;
                 if (v.texture) SDL_DestroyTexture(v.texture);
                 chars_cache.remove(k);
                 //writefln("v.tick = %s < %s. Remove key %s",
                 //        v.tick, gs.last_pict_cache_use - 300_000, k);
             }
         }
+        if (cleared) 
+        {
+            //writefln("Cleared %d objects from lines cache", cleared);
+            GC.collect();
+        }
     }
 
-    private SDL_Rect
+    public SDL_Rect
     get_size_of_line(inout (char)[] text,
             int size, long line_width, int line_height,
             SDL_Color color)
@@ -184,6 +192,7 @@ class Font
             auto rect = get_size_of_line(text, size, line_width, line_height, color);
 
             if (rect.w > 8192) rect.w = 8192;
+            if (rect.h > 8192) rect.h = 8192;
             auto texture = SDL_CreateTexture(renderer,
                     SDL_PIXELFORMAT_ARGB8888,
                     SDL_TEXTUREACCESS_TARGET,
@@ -257,6 +266,11 @@ class Font
                     /*writefln("%s - %s, %s, %s, %s",
                             line, dst.x, dst.y, dst.w, dst.h);*/
 
+                    dst.x = cast(int)line_ax;
+                    dst.y = cast(int)line_ay;
+                    dst.w = st.w;
+                    dst.h = st.h;
+
                     int r = SDL_RenderCopyEx(renderer, st.texture, null, &dst, 0,
                                 null, SDL_FLIP_NONE);
                     if (r < 0)
@@ -292,15 +306,22 @@ class Font
     void
     clear_lines_cache()
     {
+        int cleared;
         foreach(k, v; lines_cache)
         {
             if (v.tick < last_lines_cache_use - 30_000)
             {
+                cleared++;
                 if (v.texture) SDL_DestroyTexture(v.texture);
                 lines_cache.remove(k);
                 //writefln("v.tick = %s < %s. Remove key %s",
                 //        v.tick, gs.last_pict_cache_use - 300_000, k);
             }
+        }
+        if (cleared) 
+        {
+            //writefln("Cleared %d objects from lines cache", cleared);
+            GC.collect();
         }
     }
 

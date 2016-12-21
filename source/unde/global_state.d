@@ -40,6 +40,12 @@ struct Texture_Tick
 
 mixin template init_deinitBDB(bool main_thread = false)
 {
+    DbEnv dbenv;
+    Db db_map;
+    Db db_marks;
+    Db db_commands;
+    Db db_command_output;
+
     void initBDB(bool force_recover = false)
     {
         string home = getenv("HOME".toStringz()).to!string();
@@ -103,6 +109,14 @@ recover:
         db_marks.open(null, "marks.db", null, DB_BTREE, DB_CREATE | 
                         DB_AUTO_COMMIT /*| DB_MULTIVERSION*/, octal!600);
 
+        db_commands = new Db(dbenv, 0);
+        db_commands.open(null, "commands.db", null, DB_BTREE, DB_CREATE | 
+                        DB_AUTO_COMMIT /*| DB_MULTIVERSION*/, octal!600);
+
+        db_command_output = new Db(dbenv, 0);
+        db_command_output.open(null, "command_output.db", null, DB_BTREE, DB_CREATE | 
+                        DB_AUTO_COMMIT /*| DB_MULTIVERSION*/, octal!600);
+
         txn = dbenv.txn_begin(null);
 
         try
@@ -127,6 +141,8 @@ recover:
                 recover = true;
                 txn.abort();
                 txn = null;
+                db_command_output.close();
+                db_commands.close();
                 db_marks.close();
                 db_map.close();
                 dbenv.close();
@@ -151,6 +167,8 @@ recover:
             recover = true;
             txn.abort();
             txn = null;
+            db_command_output.close();
+            db_commands.close();
             db_marks.close();
             db_map.close();
             dbenv.close();
@@ -206,10 +224,14 @@ recover:
         txn.commit();
         txn = null;
 
+        db_command_output.close();
+        db_commands.close();
         db_marks.close();
         db_map.close();
         dbenv.close();
         dbenv = null;
+        db_command_output = null;
+        db_commands = null;
         db_marks = null;
         db_map = null;
     }
@@ -220,26 +242,30 @@ mixin template recommit()
     DbTxn txn;
     int OIT; // operations in transaction
     long beginned;
+    SysTime txn_started;
 
     void recommit()
     {
-        if (OIT > 100)
+        if (OIT > 100 || (Clock.currTime() - txn_started) > 200.msecs)
         {
             commit();
         }
         if (txn is null)
         {
             txn = dbenv.txn_begin(null);
-            beginned = Clock.currTime().toUnixTime();
+            txn_started = Clock.currTime();
         }
     }
 
     void commit()
     {
-        //writefln("Tid=%s, OIT=%d, time=%s", thisTid, OIT, Clock.currTime().toUnixTime() - beginned);
-        txn.commit();
-        txn = null;
-        OIT = 0;
+        //writefln("Tid=%s, OIT=%d, time=%s", thisTid, OIT, Clock.currTime() - txn_started);
+        if (txn !is null)
+        {
+            txn.commit();
+            txn = null;
+            OIT = 0;
+        }
     }
 }
 
@@ -253,9 +279,6 @@ struct CopyMapInfo
 
 class ScannerGlobalState
 {
-    DbEnv dbenv;
-    Db db_map;
-    Db db_marks;
     LsblkInfo[string] lsblk;
     CopyMapInfo[string] copy_map;
     Tid parent_tid;
@@ -278,10 +301,25 @@ class ScannerGlobalState
 
 class FMGlobalState
 {
-    DbEnv dbenv;
-    Db db_map;
-    Db db_marks;
     LsblkInfo[string] lsblk;
+    bool finish;
+
+    mixin init_deinitBDB;
+    mixin recommit;
+
+    this()
+    {
+        initBDB();
+    }
+
+    ~this()
+    {
+        deInitBDB();
+    }
+}
+
+class CMDGlobalState
+{
     bool finish;
 
     mixin init_deinitBDB;
@@ -366,7 +404,7 @@ struct Image_Viewer_State{
 
 struct Text_Viewer_State{
     PathMnt path;
-    int fontsize = 7;
+    int fontsize = 9;
     bool wraplines;
     int x, y;
     RectSize rectsize;
@@ -384,12 +422,37 @@ struct Text_Viewer_State{
 }
 
 struct Command_Line_State{
+    int fontsize = 9;
+    bool font_changed;
+
     bool enter;
     bool ctrl;
     bool shift;
     string command;
+    string edited_command;
     ssize_t pos;
+
+    string cwd;
+    ulong hist_cmd_id;
+    ssize_t hist_pos;
+
+    ulong nav_skip_cmd_id;
+    ulong nav_cmd_id;
+    ulong nav_out_id;
+
+    ulong mouse_cmd_id;
+    ulong mouse_out_id;
+    double mouse_rel_y;
+    long y;
+
+    long last_enter;
+
+    bool terminal;
+
     bool just_started_input;
+
+    long last_redraw;
+    SDL_Texture *texture;
 }
 
 class GlobalState
@@ -401,10 +464,6 @@ class GlobalState
     uint frame; //Frame which renders
     uint time; //Time from start of program in ms
     immutable msize = 128;
-    DbEnv dbenv;
-    Db db_map;
-    Db db_marks;
-    DbTxn txn;
 
     string desktop;
     string[string] mime_applications;
@@ -460,6 +519,7 @@ class GlobalState
     string[][Tid] copiers;
     string[][Tid] movers;
     string[][Tid] changers_rights;
+    string[Tid] commands;
     Pid[] pids;
     CopyMapInfo[string] copy_map;
     EnterName[string] enter_names;
@@ -585,6 +645,17 @@ class GlobalState
                     SDL_GetError().to!string() ));
         }
 
+        command_line.texture = SDL_CreateTexture(renderer,
+                SDL_PIXELFORMAT_ARGB8888,
+                SDL_TEXTUREACCESS_TARGET,
+                screen.w,
+                screen.h);
+        if( !command_line.texture )
+        {
+            throw new Exception(format("Error while creating command_line.texture: %s",
+                    SDL_GetError().to!string() ));
+        }
+
         SDL_FreeSurface(surface);
     }
 
@@ -680,6 +751,7 @@ class GlobalState
     }
 
     mixin init_deinitBDB!true;
+    mixin recommit;
 
     void initGradient()
     {
@@ -734,7 +806,8 @@ class GlobalState
         Dbt data;
 
         auto res = db_marks.get(null, &key, &data);
-	desktop = "1";
+
+        desktop = "1";
         if (res == 0)
         {
             desktop = data.to!(string).idup();

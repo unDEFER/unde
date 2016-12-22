@@ -2,6 +2,7 @@ module unde.command_line.db;
 
 import berkeleydb.all;
 import std.bitmanip;
+import std.string;
 
 struct command_key
 {
@@ -93,6 +94,7 @@ struct command_out_data
 {
     ulong time;
     OutPipe pipe;
+    size_t pos;
     string output;
 }
 
@@ -133,6 +135,7 @@ get_data_for_command_out(command_out_data d)
     data_string = "";
     data_string ~= (cast(char*)&d.time)[0..d.time.sizeof];
     data_string ~= (cast(char*)&d.pipe)[0..d.pipe.sizeof];
+    data_string ~= (cast(char*)&d.pos)[0..d.pos.sizeof];
     data_string ~= d.output;
     return data_string;
 }
@@ -143,13 +146,15 @@ parse_data_for_command_out(string data_string, out command_out_data d)
     d.time = *cast(ulong*)data_string[0..d.time.sizeof];
     data_string = data_string[d.time.sizeof..$];
     d.pipe = *cast(OutPipe*)data_string[0..d.pipe.sizeof];
-    d.output = data_string[d.pipe.sizeof..$];
+    data_string = data_string[d.pipe.sizeof..$];
+    d.pos = *cast(size_t*)data_string[0..d.pos.sizeof];
+    d.output = data_string[d.pos.sizeof..$];
 }
 
 unittest
 {
     command_out_data cmd_data = command_out_data(0xABCDEF0123456789,
-            OutPipe.STDERR, "Some output");
+            OutPipe.STDERR, 3458, "Some output");
     string data_string = get_data_for_command_out(cmd_data);
     command_out_data cmd_data2;
     parse_data_for_command_out(data_string, cmd_data2);

@@ -8,6 +8,7 @@ version(FreeType)
 }
 
 import unde.global_state;
+import unde.lib;
 
 import core.exception;
 import core.memory;
@@ -51,7 +52,7 @@ class Font
     auto
     get_char_from_cache(in string chr, in int size, in SDL_Color color)
     {
-        auto charsize = CharSize(chr, size, color);
+        auto charsize = CharSize(chr.idup(), size, color);
         auto st = charsize in chars_cache;
         if (st)
         {
@@ -119,7 +120,10 @@ class Font
             {
                 cleared++;
                 if (v.texture) SDL_DestroyTexture(v.texture);
-                chars_cache.remove(k);
+                if ( !chars_cache.remove(k) )
+                {
+                    writefln("Can't remove chars cache key %s", k);
+                }
                 //writefln("v.tick = %s < %s. Remove key %s",
                 //        v.tick, gs.last_pict_cache_use - 300_000, k);
             }
@@ -136,6 +140,7 @@ class Font
             int size, long line_width, int line_height,
             SDL_Color color)
     {
+        text ~= " ";
         if (text.length > 0 && text[$-1] == '\r') text = text[0..$-1];
         int lines = 1;
 
@@ -143,35 +148,30 @@ class Font
         int line_ay = 0;
 
         SDL_Rect rect = SDL_Rect(0, 0, 1, 1);
-        try
+        for (size_t i = 0; i < text.length; i += text.mystride(i))
         {
-            foreach (dchar c; text)
+            string chr = text[i..i+text.mystride(i)].idup();
+            //writefln("chr = %s", chr);
+            auto st = get_char_from_cache(chr, size, color);
+            if (!st) continue;
+
+            if (line_width > 0)
             {
-                string chr = to!string(c);
-                auto st = get_char_from_cache(chr, size, color);
-                if (!st) continue;
-
-                if (line_width > 0)
+                if (line_ax + st.w > line_width || chr == "\n")
                 {
-                    if (line_ax + st.w > line_width || chr == "\n")
-                    {
-                        if (line_ax > rect.w) rect.w = line_ax;
-                        line_ax = 0;
-                        line_ay += line_height;
-                        lines++;
-                        if (chr == "\n") continue;
-                    }
+                    if (line_ax > rect.w) rect.w = line_ax;
+                    line_ax = 0;
+                    line_ay += line_height;
+                    lines++;
+                    if (chr == "\n") continue;
                 }
-
-                line_ax += st.w;
             }
 
-            if (line_ax > rect.w) rect.w = line_ax;
-            rect.h = lines*line_height;
+            line_ax += st.w;
         }
-        catch (UnicodeException e)
-        {
-        }
+
+        if (line_ax > rect.w) rect.w = line_ax;
+        rect.h = lines*line_height;
         return rect;
     }
 
@@ -179,8 +179,7 @@ class Font
     get_line_from_cache(string text, 
             int size, int line_width, int line_height, SDL_Color color)
     {
-        text ~= " ";
-        auto linesize = LineSize(text, size, line_width, line_height, color);
+        auto linesize = LineSize(text.idup(), size, line_width, line_height, color);
         auto tt = linesize in lines_cache;
         if (tt)
         {
@@ -226,6 +225,7 @@ class Font
                         SDL_GetError().to!string() ));
             }
 
+            text ~= " ";
             if (text.length > 0 && text[$-1] == '\r') text = text[0..$-1];
             int lines = 1;
 
@@ -235,55 +235,47 @@ class Font
             SDL_Rect[] chars = [];
 
             ssize_t index;
-            try
+            for (size_t i=0; i < text.length; i+=text.mystride(i))
             {
-                foreach (dchar c; text)
+                string chr = text[i..i+text.mystride(i)];
+                auto st = get_char_from_cache(chr, size, color);
+                if (!st) continue;
+
+                SDL_Rect dst;
+                dst.x = cast(int)line_ax;
+                dst.y = cast(int)line_ay;
+                dst.w = st.w;
+                dst.h = st.h;
+
+                chars.length = i+1;
+                chars[i] = dst;
+
+                if (line_width > 0)
                 {
-                    string chr = to!string(c);
-                    auto st = get_char_from_cache(chr, size, color);
-                    if (!st) continue;
-
-                    SDL_Rect dst;
-                    dst.x = cast(int)line_ax;
-                    dst.y = cast(int)line_ay;
-                    dst.w = st.w;
-                    dst.h = st.h;
-
-                    chars.length = index+1;
-                    chars[index] = dst;
-                    index += chr.length;
-
-                    if (line_width > 0)
+                    if (line_ax + st.w > line_width || chr == "\n")
                     {
-                        if (line_ax + st.w > line_width || chr == "\n")
-                        {
-                            line_ax = 0;
-                            line_ay += line_height;
-                            lines++;
-                            if (chr == "\n") continue;
-                        }
+                        line_ax = 0;
+                        line_ay += line_height;
+                        lines++;
+                        if (chr == "\n") continue;
                     }
-                    /*writefln("%s - %s, %s, %s, %s",
-                            line, dst.x, dst.y, dst.w, dst.h);*/
+                }
+                /*writefln("%s - %s, %s, %s, %s",
+                        line, dst.x, dst.y, dst.w, dst.h);*/
 
-                    dst.x = cast(int)line_ax;
-                    dst.y = cast(int)line_ay;
-                    dst.w = st.w;
-                    dst.h = st.h;
+                dst.x = cast(int)line_ax;
+                dst.y = cast(int)line_ay;
+                dst.w = st.w;
+                dst.h = st.h;
 
-                    int r = SDL_RenderCopyEx(renderer, st.texture, null, &dst, 0,
-                                null, SDL_FLIP_NONE);
-                    if (r < 0)
-                    {
-                        writefln( "draw_line(): Error while render copy: %s", SDL_GetError().to!string() );
-                    }
-
-                    line_ax += st.w;
+                r = SDL_RenderCopyEx(renderer, st.texture, null, &dst, 0,
+                            null, SDL_FLIP_NONE);
+                if (r < 0)
+                {
+                    writefln( "draw_line(): Error while render copy: %s", SDL_GetError().to!string() );
                 }
 
-            }
-            catch (UnicodeException e)
-            {
+                line_ax += st.w;
             }
 
             r = SDL_SetRenderTarget(renderer, old_texture);
@@ -313,9 +305,13 @@ class Font
             {
                 cleared++;
                 if (v.texture) SDL_DestroyTexture(v.texture);
-                lines_cache.remove(k);
+                if (!lines_cache.remove(k))
+                {
+                    writefln("NOT DELETED key %s", k.line);
+                    writefln("k in lines_cache %s", k in lines_cache);
+                }
                 //writefln("v.tick = %s < %s. Remove key %s",
-                //        v.tick, gs.last_pict_cache_use - 300_000, k);
+                //        v.tick, last_lines_cache_use - 30_000, k);
             }
         }
         if (cleared) 

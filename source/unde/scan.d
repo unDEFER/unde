@@ -1031,7 +1031,7 @@ check_scanners(GlobalState gs)
 {
     if (gs.scanners.length > 0 || gs.removers.length > 0 || 
             gs.copiers.length > 0 || gs.movers.length > 0 ||
-            gs.changers_rights.length > 0)
+            gs.changers_rights.length > 0 || gs.commands.length > 0)
     {
         gs.dirty = true;
         receiveTimeout( 0.seconds, 
@@ -1194,11 +1194,29 @@ check_scanners(GlobalState gs)
                     else if (tid in gs.commands)
                     {
                         gs.commands.remove(tid);
+                        foreach(id, t; gs.tid_by_command_id)
+                        {
+                            if (t == tid)
+                            {
+                                gs.tid_by_command_id.remove(id);
+                                break;
+                            }
+                        }
                     }
                     else
                     {
                         throw new Exception("UNKNOWN TID");
                     }
+                },
+                (Tid tid, string msg, ulong new_id)
+                {
+                    //writefln("new_id=%s, tid=%s", new_id, tid);
+                    if (msg != "command_id")
+                    {
+                        throw new Exception("Unknown Command");
+                    }
+
+                    gs.tid_by_command_id[new_id] = tid;
                 },
                 (shared(Throwable) exc) 
                 { 

@@ -453,6 +453,13 @@ struct Command_Line_State{
 
     long last_redraw;
     SDL_Texture *texture;
+
+    Tid command_in_focus_tid;
+    ulong command_in_focus_id;
+
+    long last_left_click;
+    long last_right_click;
+    int moved_while_click;
 }
 
 class GlobalState
@@ -520,6 +527,7 @@ class GlobalState
     string[][Tid] movers;
     string[][Tid] changers_rights;
     string[Tid] commands;
+    Tid[ulong] tid_by_command_id;
     Pid[] pids;
     CopyMapInfo[string] copy_map;
     EnterName[string] enter_names;

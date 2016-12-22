@@ -254,6 +254,7 @@ redraw:
                     Dbt key, data;
                     ulong id = find_prev_command(cursor, cwd, nav_skip_cmd_id,
                             key, data);
+                    bool first_cmd = true;
 
                     if (id != 0)
                     {
@@ -315,7 +316,7 @@ redraw:
                                                         fontsize, gs.screen.w-80, line_height, color);
 
                                                 int lines = rt.h / line_height - 1;
-                                                if (cmd_data2.output[$-1] != '\n') lines++;
+                                                if (cmd_data2.output.length > 0 && cmd_data2.output[$-1] != '\n') lines++;
                                                 y_off -= line_height*lines;
 
                                                 auto i = 0;
@@ -334,6 +335,8 @@ redraw:
                                                         throw new Exception("Can't create text_surface: "~
                                                                 to!string(TTF_GetError()));
                                                     }
+                                                    assert(rt.w == tt.w && rt.h == tt.h, format("rt.w=%d, tt.w=%d, rt.h=%d, tt.h=%d",
+                                                                rt.w, tt.w, rt.h, tt.h));
 
                                                     r = SDL_RenderCopy(gs.renderer, tt.texture, null, &rect);
                                                     if (r < 0)
@@ -341,17 +344,57 @@ redraw:
                                                         writefln(
                                                                 "draw_command_line(), 2: Error while render copy: %s", 
                                                                 SDL_GetError().to!string() );
+                                                        writefln("text: %s", cmd_data2.output);
+                                                    }
+
+                                                    if (nav_skip_cmd_id == 0 && first_cmd &&
+                                                            cmd_data2.pos < tt.chars.length)
+                                                    {
+                                                        auto rect2= tt.chars[cmd_data2.pos];
+                                                        rect2.x += 40;
+                                                        rect2.y += cast(int)(y_off + 4 + line_height*i);
+                                                        string chr = " ";
+                                                        try
+                                                        {
+                                                        if (cmd_data2.pos < cmd_data2.output.length)
+                                                            chr = cmd_data2.output[cmd_data2.pos..cmd_data2.pos+cmd_data2.output.stride(cmd_data2.pos)];
+                                                        }
+                                                        catch (UTFException exp)
+                                                        {
+                                                            chr = " ";
+                                                        }
+                                                        if (chr == "\n") chr = " ";
+
+                                                        r = SDL_RenderCopy(gs.renderer, gs.texture_cursor, null, &rect2);
+                                                        if (r < 0)
+                                                        {
+                                                            writefln( "draw_command_line(), 3: Error while render copy: %s",
+                                                                    SDL_GetError().to!string() );
+                                                        }
+
+                                                        auto st = gs.text_viewer.font.get_char_from_cache(chr, fontsize, SDL_Color(0x00, 0x00, 0x20, 0xFF));
+                                                        if (!st) return;
+
+                                                        r = SDL_RenderCopy(gs.renderer, st.texture, null, &rect2);
+                                                        if (r < 0)
+                                                        {
+                                                            writefln(
+                                                                    "draw_command_line(), 4: Error while render copy: %s", 
+                                                                    SDL_GetError().to!string() );
+                                                            writefln("chr: %s", chr);
+                                                        }
                                                     }
                                                 }
+                                                first_cmd = false;
 
                                                 if (rect.y <= gs.mouse_screen_y && 
-                                                        rect.y+rect.h >= gs.mouse_screen_y)
+                                                        rect.y+rect.h-line_height >= gs.mouse_screen_y)
                                                 {
                                                     mouse_cmd_id = cmd_key2.cmd_id;
                                                     mouse_out_id = cmd_key2.out_id;
                                                     mouse_rel_y = (cast(double)gs.mouse_screen_y-rect.y)/rect.h;
-                                                    //writefln("OUT: mouse_cmd_id=%s, mouse_out_id=%s, mouse_rel_y=%.2f",
-                                                    //        mouse_cmd_id, mouse_out_id, mouse_rel_y);
+                                                    //writefln("OUT: mouse_cmd_id=%s, mouse_out_id=%s, out=%s",
+                                                    //        mouse_cmd_id, mouse_out_id, cmd_data2.output);
                                                 }
 
                                                 if (rect.y > gs.screen.h)
@@ -361,7 +404,7 @@ redraw:
                                                     y -= rt.h - line_height;
                                                     nav_out_id = cmd_key2.out_id;
                                                     nav_cmd_id = cmd_key.id;
-                                                    //writefln("OUT UP");
+                                                    writefln("OUT UP");
                                                 }
 
                                                 //writefln("OUT: y=%s, first_cmd_or_out=%s, nav_out_id=%s, rect.y + rect.h=%s, gs.screen.h=%s",
@@ -395,9 +438,56 @@ redraw:
                                 int lines = rt.h / line_height;
                                 y_off -= line_height*lines;
 
+                                if (cmd_data.end == 0)
+                                {
+                                    auto tt = gs.text_viewer.font.get_char_from_cache(
+                                            "⬤", 7, SDL_Color(0x00, 0xFF, 0x00, 0xFF));
+
+                                    auto rect = SDL_Rect();
+                                    rect.x = 30;
+                                    rect.y = cast(int)(y_off + 4);
+                                    rect.w = tt.w;
+                                    rect.h = tt.h;
+
+                                    r = SDL_RenderCopy(gs.renderer, tt.texture, null, &rect);
+                                    if (r < 0)
+                                    {
+                                        writefln(
+                                                "draw_command_line(), 5: Error while render copy: %s", 
+                                                SDL_GetError().to!string() );
+                                    }
+                                }
+                                else
+                                {
+                                    auto color = SDL_Color(0x00,0xFF,0x00,0xFF);
+                                    if (cmd_data.status != 0) color = SDL_Color(0xFF,0x00,0x00,0xFF);
+
+                                    auto tt = gs.text_viewer.font.get_line_from_cache(format("%d", cmd_data.status), 
+                                            8, gs.screen.w-80, line_height, color);
+                                    if (!tt && !tt.texture)
+                                    {
+                                        throw new Exception("Can't create text_surface: "~
+                                                to!string(TTF_GetError()));
+                                    }
+
+                                    auto rect = SDL_Rect();
+                                    rect.x = 30;
+                                    rect.y = cast(int)(y_off + 4);
+                                    rect.w = tt.w;
+                                    rect.h = tt.h;
+
+                                    r = SDL_RenderCopy(gs.renderer, tt.texture, null, &rect);
+                                    if (r < 0)
+                                    {
+                                        writefln(
+                                                "draw_command_line(), 6: Error while render copy: %s", 
+                                                SDL_GetError().to!string() );
+                                    }
+                                }
+
                                 auto i = 0;
                                 auto rect = SDL_Rect();
-                                rect.x = 40;
+                                rect.x = 55;
                                 rect.y = cast(int)(y_off + 4 + line_height*i);
                                 rect.w = rt.w;
                                 rect.h = rt.h;
@@ -416,7 +506,7 @@ redraw:
                                     if (r < 0)
                                     {
                                         writefln(
-                                                "draw_command_line(), 2: Error while render copy: %s", 
+                                                "draw_command_line(), 7: Error while render copy: %s", 
                                                 SDL_GetError().to!string() );
                                     }
                                 }
@@ -427,8 +517,8 @@ redraw:
                                     mouse_cmd_id = cmd_key.id;
                                     mouse_out_id = 0;
                                     mouse_rel_y = (cast(double)gs.mouse_screen_y-rect.y)/rect.h;
-                                    //writefln("CMD: mouse_cmd_id=%s, mouse_out_id=%s, mouse_rel_y=%.2f",
-                                    //        mouse_cmd_id, mouse_out_id, mouse_rel_y);
+                                    //writefln("CMD: mouse_cmd_id=%s, mouse_out_id=%s, command=%s",
+                                    //        mouse_cmd_id, mouse_out_id, cmd_data.command);
                                 }
 
                                 if (rect.y > gs.screen.h)
@@ -458,7 +548,7 @@ redraw:
                     if (first_cmd_or_out)
                     {
                         fix_bottom_line(gs);
-                        goto redraw;
+                        //goto redraw;
                     }
                 }
             }
@@ -499,7 +589,7 @@ redraw:
                 r = SDL_RenderCopy(gs.renderer, gs.texture_black, null, &rect);
                 if (r < 0)
                 {
-                    writefln( "draw_command_line(), 1: Error while render copy: %s",
+                    writefln( "draw_command_line(), 8: Error while render copy: %s",
                             SDL_GetError().to!string() );
                 }
                 
@@ -516,7 +606,7 @@ redraw:
                 if (r < 0)
                 {
                     writefln(
-                        "draw_command_line(), 2: Error while render copy: %s", 
+                        "draw_command_line(), 9: Error while render copy: %s", 
                         SDL_GetError().to!string() );
                 }
 
@@ -532,7 +622,7 @@ redraw:
                 if (r < 0)
                 {
                     writefln(
-                        "draw_command_line(), 3: Error while render copy: %s", 
+                        "draw_command_line(), 10: Error while render copy: %s", 
                         SDL_GetError().to!string() );
                 }
 
@@ -550,7 +640,7 @@ redraw:
                     r = SDL_RenderCopy(gs.renderer, gs.texture_cursor, null, &rect);
                     if (r < 0)
                     {
-                        writefln( "draw_command_line(), 4: Error while render copy: %s",
+                        writefln( "draw_command_line(), 11: Error while render copy: %s",
                                 SDL_GetError().to!string() );
                     }
 
@@ -561,7 +651,7 @@ redraw:
                     if (r < 0)
                     {
                         writefln(
-                            "draw_command_line(), 5: Error while render copy: %s", 
+                            "draw_command_line(), 12: Error while render copy: %s", 
                             SDL_GetError().to!string() );
                     }
                 }

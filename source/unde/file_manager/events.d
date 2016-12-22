@@ -238,17 +238,20 @@ void process_key_down(GlobalState gs, SDL_Scancode scancode)
 
         case SDL_SCANCODE_BACKSPACE:
             RectSize rectsize = getRectSize(gs);
-            with(gs.enter_names[gs.current_path])
+            if (gs.current_path in gs.enter_names)
             {
-                if ( (rectsize.show_info == InfoType.CreateDirectory ||
-                            rectsize.show_info == InfoType.Copy ||
-                            rectsize.show_info == InfoType.Move) &&
-                       name > "" && pos > 0 )
+                with(gs.enter_names[gs.current_path])
                 {
-                    int sb = name.strideBack(pos);
-                    name = (name[0..pos-sb] ~ name[pos..$]).idup();
-                    pos -= sb;
-                    gs.dirty = true;
+                    if ( (rectsize.show_info == InfoType.CreateDirectory ||
+                                rectsize.show_info == InfoType.Copy ||
+                                rectsize.show_info == InfoType.Move) &&
+                           name > "" && pos > 0 )
+                    {
+                        int sb = name.strideBack(pos);
+                        name = (name[0..pos-sb] ~ name[pos..$]).idup();
+                        pos -= sb;
+                        gs.dirty = true;
+                    }
                 }
             }
             break;
@@ -546,7 +549,7 @@ void process_event(GlobalState gs, ref SDL_Event event)
             }
             gs.screen.x = gs.mousex - gs.mouse_screen_x*gs.screen.scale;
             gs.screen.y = gs.mousey - gs.mouse_screen_y*gs.screen.scale;
-            //writeln("scale=", scale);
+            //writeln("scale=", gs.screen.scale);
             break;
             
         case SDL_JOYAXISMOTION:

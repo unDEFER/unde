@@ -8,6 +8,8 @@ import std.string;
 import std.process;
 import std.regex;
 import std.conv;
+import std.utf;
+import core.exception;
 
 import derelict.sdl2.sdl;
 
@@ -488,3 +490,20 @@ string getParent(string path)
 	}
         return path[0..path.lastIndexOf(SL)];
 }
+
+size_t
+mystride(T)(T str, size_t pos)
+{
+    try
+    {
+        return str.stride(pos);
+    }
+    catch (UnicodeException e)
+    {
+    }
+    catch (UTFException e)
+    {
+    }
+    return 1;
+}
+

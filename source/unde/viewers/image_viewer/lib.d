@@ -14,6 +14,7 @@ import std.string;
 import std.stdio;
 import std.algorithm.sorting;
 import std.math;
+import core.memory;
 
 import std.file;
 
@@ -210,18 +211,28 @@ get_image_from_cache(GlobalState gs,
 void
 clear_image_cache(GlobalState gs)
 {
+    int cleared;
     with(gs.image_viewer)
     {
         foreach(k, v; image_cache)
         {
             if (v.tick < last_image_cache_use - 30_000)
             {
+                cleared++;
                 if (v.texture) SDL_DestroyTexture(v.texture);
-                image_cache.remove(k);
-                //writefln("v.tick = %s < %s. Remove key %s",
-                //        v.tick, last_image_cache_use - 300_000, k);
+                if (!image_cache.remove(k))
+                {
+                    writefln("Can't remove image cache key %s", k);
+                }
+                writefln("v.tick = %s < %s. Remove key %s",
+                        v.tick, last_image_cache_use - 30_000, k);
             }
         }
+    }
+    if (cleared) 
+    {
+        //writefln("Cleared %d objects from lines cache", cleared);
+        GC.collect();
     }
 }
 

@@ -29,6 +29,7 @@ import core.thread;
 import std.process;
 import std.regex;
 import std.datetime;
+import std.algorithm.mutation;
 
 import unde.lib;
 
@@ -156,8 +157,529 @@ delete_command_out(CMDGlobalState cgs, string cwd, ulong cmd_id)
 
 }
 
+enum StateEscape
+{
+    WaitEscape,
+    WaitBracket,
+    WaitNumberR,
+    WaitText,
+    WaitCSI
+}
+
+private size_t
+process_escape_sequences(CMDGlobalState cgs, ref char[4096] buf, ref size_t buf_r, ref size_t max_r, ref char[4096] prebuf, ref ssize_t r)
+{
+    StateEscape state;
+    ssize_t start_i;
+    int substate;
+    string text;
+    for (ssize_t i = 0; i < r; i += prebuf.mystride(i))
+    {
+        char[] chr;
+        if (i+prebuf.mystride(i) > r)
+            chr = prebuf[i..i+1];
+        else
+            chr = prebuf[i..i+prebuf.mystride(i)];
+
+        //writefln("Process '%c' - %X (%d)", prebuf[i], prebuf[i], prebuf[i]);
+        final switch (state)
+        {
+            case StateEscape.WaitEscape:
+                if (chr.length > 1)
+                {
+                    writef("%s", chr);
+                    /*writefln("%s", chr);
+                    if (buf_r > 4)
+                        writefln("buf=%s", buf[buf_r-4..buf_r+4]);*/
+                    auto chrlen = buf.mystride(buf_r);
+                    if (chrlen != chr.length)
+                    {
+                        //if (max_r + chr.length-chrlen > buf.length) max_r = buf.length - (chr.length-chrlen);
+                        if (max_r <= buf_r+chrlen) 
+                        {
+                            buf[max_r..buf_r+chrlen] = ' ';
+                            max_r = buf_r+chrlen;
+                        }
+                        std.algorithm.mutation.copy(buf[buf_r+chrlen..max_r] , buf[buf_r+chr.length..max_r+chr.length-chrlen]);
+                        max_r += chr.length-chrlen;
+                    }
+
+                    buf[buf_r..buf_r+chr.length] = chr;
+                    /*if (buf_r > 4)
+                        writefln("After buf=%s", buf[buf_r-4..buf_r+4]);*/
+                    buf_r+=chr.length;
+                    if (buf_r > max_r) max_r = buf_r;
+                    continue;
+                }
+
+                if (prebuf[i] == '\x07') //Bell
+                {
+                    continue;
+                }
+                if (prebuf[i] == '\x08') //BackSpace
+                {
+                    start_i = i;
+                    if (buf_r >= buf.strideBack(buf_r))
+                        buf_r -= buf.strideBack(buf_r);
+                    writefln("BackSpace");
+                    //writefln("buf_r2=%s", buf[buf_r..max_r]);
+                    state = StateEscape.WaitEscape;
+                }
+                else if (prebuf[i] == '\x1B')
+                {
+                    start_i = i;
+                    state = StateEscape.WaitBracket;
+                    writefln("ESC %s", prebuf[i+1..r]);
+                }
+                else if (prebuf[i] == '\x9B')
+                {
+                    start_i = i;
+                    state = StateEscape.WaitCSI;
+                    text = "";
+                }
+                else
+                {
+                    writef("%c", prebuf[i]);
+                    /*writefln("%c", prebuf[i]);
+                    if (buf_r > 4)
+                        writefln("buf=%s", buf[buf_r-4..buf_r+4]);*/
+                    auto chrlen = buf.mystride(buf_r);
+                    if (chrlen != 1)
+                    {
+                        if (max_r <= buf_r+chrlen) 
+                        {
+                            buf[max_r..buf_r+chrlen] = ' ';
+                            max_r = buf_r+chrlen;
+                        }
+                        std.algorithm.mutation.copy(buf[buf_r+chrlen..max_r], buf[buf_r+1..max_r+1-chrlen]);
+                        max_r += 1-chrlen;
+                    }
+                    buf[buf_r] = prebuf[i];
+                    /*if (buf_r > 4)
+                        writefln("After buf=%s", buf[buf_r-4..buf_r+4]);*/
+                    buf_r++;
+                    if (buf_r > max_r) max_r = buf_r;
+                    //writefln("ADD '%c': buf=%s", prebuf[i], buf[0..max_r]);
+                }
+                break;
+            case StateEscape.WaitBracket:
+                if (prebuf[i] == ']')
+                    state = StateEscape.WaitNumberR;
+                else if (prebuf[i] == '[')
+                {
+                    state = StateEscape.WaitCSI;
+                    text = "";
+                }
+                else
+                {
+                    writefln("UNKNOWN Escape Sequence \"ESC %c\"", prebuf[i]);
+                    state = StateEscape.WaitEscape;
+                }
+                break;
+            case StateEscape.WaitNumberR:
+                if (r - i < 3) break;
+                if (prebuf[i..i+2] == "0;")
+                {
+                    substate = 0;
+                    state = StateEscape.WaitText;
+                    text = "";
+                    i++;
+                }
+                else if (prebuf[i..i+2] == "2;")
+                {
+                    substate = 2;
+                    state = StateEscape.WaitText;
+                    text = "";
+                    i++;
+                }
+                else if (prebuf[i..i+2] == "4;")
+                {
+                    substate = 4;
+                    state = StateEscape.WaitText;
+                    text = "";
+                    i++;
+                }
+                else if (prebuf[i..i+3] == "10;")
+                {
+                    substate = 10;
+                    state = StateEscape.WaitText;
+                    text = "";
+                    i+=2;
+                }
+                else if (prebuf[i..i+3] == "46;")
+                {
+                    substate = 46;
+                    state = StateEscape.WaitText;
+                    text = "";
+                    i+=2;
+                }
+                else if (prebuf[i..i+3] == "50;")
+                {
+                    substate = 50;
+                    state = StateEscape.WaitText;
+                    text = "";
+                    i+=2;
+                }
+                else
+                {
+                    writefln("UNKNOWN Escape Sequence \"ESC ] %c%c\"", prebuf[i], prebuf[i+1]);
+                    state = StateEscape.WaitEscape;
+                }
+                break;
+            case StateEscape.WaitText:
+                if (prebuf[i] == '\x07')
+                {
+                    switch(substate)
+                    {
+                        case 0:
+                            /* Set icon name and window title to txt. */
+                            break;
+                        case 1:
+                            /* Set icon name to txt. */
+                            break;
+                        case 2:
+                            /* Set window title to txt. */
+                            break;
+                        case 4:
+                            /* Set ANSI color num to txt. */
+                            break;
+                        case 10:
+                            /* Set dynamic text color to txt.. */
+                        case 46:
+                            /* Change log file to name */
+                        case 50:
+                            /* Set font to fn. */
+                        default:
+                            assert(0);
+                    }
+                    state = StateEscape.WaitEscape;
+                }
+                else
+                    text ~= prebuf[i];
+                break;
+            case StateEscape.WaitCSI:
+                switch (prebuf[i])
+                {
+                    case '@':
+                        /*Insert the indicated # of blank characters.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'A':
+                        /*Move cursor up the indicated # of rows.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'B':
+                        /*Move cursor down the indicated # of rows.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'C':
+                        /*Move cursor right the indicated # of columns.*/
+                        writefln("buf before Right: %s", buf[buf_r..max_r]);
+                        buf_r += buf.stride(buf_r);
+                        if (buf_r > max_r)
+                        {
+                            buf[max_r..buf_r] = ' ';
+                            max_r = buf_r;
+                        }
+                        state = StateEscape.WaitEscape;
+                        writefln("buf after Right: %s", buf[buf_r..max_r]);
+                        break;
+                    case 'D':
+                        /*Move cursor left the indicated # of columns.*/
+                        if (buf_r > 0)
+                            buf_r -= buf.strideBack(buf_r);
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'E':
+                        /*Move cursor down the indicated # of rows, to column 1.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'F':
+                        /*Move cursor up the indicated # of rows, to column 1.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'G':
+                        /*Move cursor to indicated column in current row.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'H':
+                        /*Move cursor to the indicated row, column (origin at 1,1).*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'J':
+                        /*Erase display (default: from cursor to end of display).*/
+                        /*
+                           ESC [ 1 J: erase from start to cursor.
+                           ESC [ 2 J: erase whole display.
+                           ESC [ 3 J: erase whole display including scroll-back
+                           prebuffer (since Linux 3.0).
+                         */
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'K':
+                        /*Erase line (default: from cursor to end of line).*/
+                        /*
+                           ESC [ 1 K: erase from start of line to cursor.
+                           ESC [ 2 K: erase whole line.
+                         */
+                        if (max_r > buf.length) max_r = buf.length;
+                        buf[buf_r..max_r] = ' ';
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'L':
+                        /*Insert the indicated # of blank lines.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'M':
+                        /*Delete the indicated # of lines.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'P':
+                        /*Delete the indicated # of characters on current line.*/
+                        int num = 1;
+                        if (text != "") num = to!int(text);
+                        //writefln("before buf='%s'", buf[buf_r..max_r]);
+                        int bytes = 0;
+                        for (auto j=0; j < num; j++)
+                        {
+                            bytes += buf.stride(buf_r+bytes);
+                        }
+                        std.algorithm.mutation.copy(buf[buf_r+bytes..max_r], buf[buf_r..max_r-bytes]);
+                        max_r -= bytes;
+                        //writefln("buf='%s'", buf[buf_r..max_r]);
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'X':
+                        /*Erase the indicated # of characters on current line.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'a':
+                        /*Move cursor right the indicated # of columns.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'c':
+                        /*Answer ESC [ ? 6 c: "I am a VT102".*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'd':
+                        /*Move cursor to the indicated row, current column.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'e':
+                        /*Move cursor down the indicated # of rows.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'f':
+                        /*Move cursor to the indicated row, column.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'g':
+                        /*Without parameter: clear tab stop at current position.*/
+                        /* ESC [ 3 g: delete all tab stops. */
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'h':
+                        /*Set Mode (see below).*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'l':
+                        /*Reset Mode (see below).*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'm':
+                        /*Set attributes (see below).*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'n':
+                        /*Status report (see below).*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'q':
+                        /*Set keyboard LEDs.*/
+                        /*ESC [ 0 q: clear all LEDs
+                          ESC [ 1 q: set Scroll Lock LED
+                          ESC [ 2 q: set Num Lock LED
+                          ESC [ 3 q: set Caps Lock LED*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'r':
+                        /*Set scrolling region; parameters are top and bottom row.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 's':
+                        /*Save cursor location.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case 'u':
+                        /*Restore cursor location.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case '`':
+                        /*Move cursor to indicated column in current row.*/
+                        state = StateEscape.WaitEscape;
+                        break;
+                    case '?':
+                        break;
+                    case '0':.. case '9':
+                        text ~= prebuf[i];
+                        break;
+                    default:
+                        writefln("UNKNOWN Escape Sequence \"ESC [ %c\"", prebuf[i]);
+                        state = StateEscape.WaitEscape;
+                        break;
+                }
+
+        }
+                        /*char=code=1B (27)
+                        char=] code=5D (93)
+                        char=0 code=30 (48)
+                        char=; code=3B (59)
+                        ... 7*/
+
+    }
+
+    return max_r;
+}
+
 private int
-fork_command(CMDGlobalState cgs, string cwd, string command)
+process_input(CMDGlobalState cgs, string cwd, ulong new_id, ref char[4096] buf,
+        ref size_t buf_r, ref size_t max_r,
+        ref ulong out_id, ref ulong out_id1, int fd, OutPipe pipe)
+{
+    //writefln("max_r=%d", max_r);
+    ssize_t r;
+    char[4096] prebuf;
+    //writefln("buf.length-buf_r = %d", buf.length-buf_r);
+    auto r1 = read(fd, prebuf.ptr, buf.length-buf_r);
+    //writefln("READED: %s", prebuf[0..r1]);
+    auto buf_length_was = buf.length-buf_r;
+
+    assert(buf.length > buf_r);
+
+    if (r1 > 0)
+    {
+        //writefln("r1=%d, buf.length-buf_r=%d", r1, buf.length-buf_r);
+
+        //writefln("read r=%d", r);
+        r = process_escape_sequences(cgs, buf, buf_r, max_r, prebuf, r1);
+
+        //writefln("PROCESSED: %s", buf[0..r]);
+
+        //writefln("r=%d buf=%s", r, buf[0..r]);
+        //r = read(fd, buf[buf_r..$].ptr, buf[buf_r..$].length);
+        Dbt key, data;
+        if (out_id1 == 0)
+        {
+            out_id++;
+            out_id1 = out_id;
+        }
+        //writefln("WRITED: out_id1 = %s", out_id1);
+        //writefln("OUT: new_id=%s out_id=%s", new_id, out_id1);
+        string ks = get_key_for_command_out(command_out_key(cwd, new_id, out_id1));
+        key = ks;
+
+        ssize_t split_r;
+        if (r1 < buf_length_was) split_r = r;
+        else
+        {
+            ssize_t sym = buf[r/2..$].lastIndexOf("\n");
+            if (sym >= 0) split_r = r/2+sym+1;
+            else
+            {
+                sym = buf[r/2..$].lastIndexOf(".");
+                if (sym >= 0) split_r = r/2+sym+1;
+                else
+                {
+                    sym = buf[r/2..$].lastIndexOf(" ");
+                    if (sym >= 0) split_r = r/2+sym+1;
+                    else
+                    {
+                        for (auto i = r-1; i >= 0; i--)
+                        {
+                            if ((buf[i] & 0b1000_0000) == 0 ||
+                                    (buf[i] & 0b1100_0000) == 0b1100_0000)
+                            {
+                                split_r = i;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        //writefln("Write to DB buf=%s, pos = %s",buf[0..split_r], split_r > buf_r ? buf_r : split_r);
+        string ds = get_data_for_command_out(command_out_data(Clock.currTime().stdTime(), pipe, split_r > buf_r ? buf_r : split_r, buf[0..split_r].idup()));
+        data = ds;
+        auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
+        if (res != 0)
+        {
+            throw new Exception("DB command out not written");
+        }
+        cgs.OIT++;
+
+        //writefln("r=%d, split_r=%d, buf_r=%d", r, split_r, buf_r);
+        /*writefln("%s: buf=%s r=%s", pipe, buf[0..split_r], split_r);
+        if (pipe == OutPipe.STDERR)
+        {
+            for (auto i=0; i < split_r; i++)
+            {
+                writefln("char=%c code=%X (%d)", buf[i], buf[i], buf[i]);
+            }
+        }*/
+        /*ssize_t a = ((split_r-50 >= 0) ? split_r-50 : 0);
+        ssize_t b = ((split_r+50 <= r) ? split_r+50 : r);
+        writefln("OUT: split \"%s\"~\"%s\" r=%s", 
+                buf[a..split_r], 
+                buf[split_r..b], 
+                split_r);*/
+        bool no_n = false;
+        if (split_r < r)
+        {
+            buf[0..r - split_r] = buf[split_r..r];
+            max_r = r - split_r;
+            if (split_r > buf_r)
+                buf_r = 0;
+            else
+                buf_r -= split_r;
+            /*ssize_t c = ((50 < r - split_r) ? 50 : r - split_r);
+            writefln("buf: \"%s\"", buf[0..c]);*/
+        }
+        else
+        {
+            if (r < buf.length/2)
+            {
+                if (r > 0 && buf[r-1] != '\n')
+                {
+                    no_n = true;
+
+                    //writefln("%s: Not ended with \\n line found: %s", pipe, buf[0..split_r]);
+                }
+            }
+
+            if (!no_n)
+            {
+                buf_r = 0;
+                max_r = 0;
+            }
+        }
+        if (!no_n)
+        {
+                //writefln("%s: Ended with \\n line found: %s", pipe, buf[0..split_r]);
+            out_id1 = 0;
+        }
+
+    }
+    if (r1 < 0 && errno != EWOULDBLOCK)
+    {
+        throw new Exception("read() error: " ~ fromStringz(strerror(errno)).idup());
+    }
+    if (r1 == 0) return 1;
+    return 0;
+}
+
+private int
+fork_command(CMDGlobalState cgs, string cwd, string command, Tid tid)
 {
     cgs.recommit();
 
@@ -170,7 +692,7 @@ cwd, id
     if (id > 0)
     {
         new_id = id + 1000 - id%1000;
-        writefln("last_id=%s (%%1000=%s), new_id=%s", id, id%1000, new_id);
+        //writefln("last_id=%s (%%1000=%s), new_id=%s", id, id%1000, new_id);
     }
 
     if (command[0] != '*' && command[0] != '+')
@@ -183,6 +705,8 @@ cwd, id
 
         delete_command_out(cgs, cwd, replace_id);
     }
+
+    tid.send(thisTid, "command_id", new_id);
 
     Dbt key, data;
     string ks = get_key_for_command(command_key(cwd, new_id));
@@ -251,8 +775,14 @@ cwd, command_id, out_id,
     time, stderr/stdout, output*/
 
     chdir(cwd);
-    auto cmd_pipes = pipeProcess(["bash", "-c", command], Redirect.stdout | Redirect.stderr);
-    scope(exit) wait(cmd_pipes.pid);
+    auto cmd_pipes = pipeProcess(["bash", "-c", command], Redirect.stdout | Redirect.stderr | Redirect.stdin);
+    scope(success) {
+        wait(cmd_pipes.pid);
+    }
+    scope(failure) {
+        kill(cmd_pipes.pid, SIGKILL);
+        wait(cmd_pipes.pid);
+    }
 
     cmd_data.start = Clock.currTime().stdTime();
     ds = get_data_for_command(cmd_data);
@@ -269,13 +799,16 @@ cwd, command_id, out_id,
 
     auto fdstdout = cmd_pipes.stdout.fileno;
     auto fdstderr = cmd_pipes.stderr.fileno;
+    auto fdstdin  = cmd_pipes.stdin.fileno;
     auto fdmax = (fdstderr>fdstdout?fdstderr:fdstdout);
 
     /*Make file descriptions NON_BLOCKING */
     set_non_block_mode(fdstdout);
     set_non_block_mode(fdstderr);
+    set_non_block_mode(fdstdin);
 
     fd_set rfds;
+    fd_set wfds;
     timeval tv;
     int retval;
 
@@ -283,7 +816,7 @@ cwd, command_id, out_id,
     tv.tv_sec = 0;
     tv.tv_usec = 100_000;
 
-    int buffer_full = 0;
+    bool select_zero;
     bool terminated;
     int result = -1;
     ulong out_id = 0;
@@ -291,234 +824,110 @@ cwd, command_id, out_id,
     char[4096] buf2;
     size_t buf1_r;
     size_t buf2_r;
+    size_t max1_r;
+    size_t max2_r;
     ulong out_id1 = 0;
     ulong out_id2 = 0;
+    bool stdin_closed = false;
     while(!cgs.finish)
     {
         cgs.recommit();
-        if (buffer_full <= 0)
+        if (select_zero)
         {
             auto dmd = tryWait(cmd_pipes.pid);
             if (dmd.terminated)
             {
-                terminated =true;
-                if (buffer_full < 0)
-                {
-                    cgs.commit();
-                    cgs.recommit();
-                    cmd_data.end = Clock.currTime().stdTime();
-                    cmd_data.status = dmd.status;
-                    result = dmd.status;
-                    ds = get_data_for_command(cmd_data);
-                    data = ds;
+                cgs.commit();
+                cgs.recommit();
+                cmd_data.end = Clock.currTime().stdTime();
+                cmd_data.status = dmd.status;
+                result = dmd.status;
+                ds = get_data_for_command(cmd_data);
+                data = ds;
 
-                    res = cgs.db_commands.put(cgs.txn, &key, &data);
-                    if (res != 0)
-                    {
-                        throw new Exception("DB command not written");
-                    }
-                    cgs.OIT++;
-                    break;
+                res = cgs.db_commands.put(cgs.txn, &key, &data);
+                if (res != 0)
+                {
+                    throw new Exception("DB command not written");
                 }
+                cgs.OIT++;
+                writefln("NORMAL EXIT");
+                break;
             }
         }
 
-        buffer_full = 0;
+        select_zero = false;
 
         FD_ZERO(&rfds);
         FD_SET(fdstdout, &rfds);
         FD_SET(fdstderr, &rfds);
 
-        retval = select(fdmax+1, &rfds, null, null, &tv);
+        if (!stdin_closed)
+        {
+            FD_ZERO(&wfds);
+            FD_SET(fdstdin, &wfds);
+        }
+
+        int eof = 0;
+
+        retval = select(fdmax+1, &rfds, stdin_closed ? null : &wfds, null, &tv);
         if (retval < 0)
         {
-            throw new Exception("select() error: " ~ fromStringz(strerror(errno)).idup());
+            if (errno != EINTR)
+                throw new Exception("select() error: " ~ fromStringz(strerror(errno)).idup());
         }
         else if (retval > 0)
         {
             if (FD_ISSET(fdstdout, &rfds))
             {
-                ssize_t r;
-                r = read(fdstdout, buf1[buf1_r..$].ptr, buf1[buf1_r..$].length);
-                if (r > 0)
-                {
-                    r += buf1_r;
-                    buffer_full |= (r >= buf1.length);
-                    Dbt key3, data3;
-                    if (out_id1 == 0)
-                    {
-                        out_id++;
-                        out_id1 = out_id;
-                    }
-                    //writefln("OUT: new_id=%s out_id=%s", new_id, out_id1);
-                    ks = get_key_for_command_out(command_out_key(cwd, new_id, out_id1));
-                    key3 = ks;
-
-                    ssize_t split_r;
-                    if (r < buf1.length) split_r = r;
-                    else
-                    {
-                        ssize_t sym = buf1[r/2..$].lastIndexOf("\n");
-                        if (sym >= 0) split_r = r/2+sym+1;
-                        else
-                        {
-                            sym = buf1[r/2..$].lastIndexOf(".");
-                            if (sym >= 0) split_r = r/2+sym+1;
-                            else
-                            {
-                                sym = buf1[r/2..$].lastIndexOf(" ");
-                                if (sym >= 0) split_r = r/2+sym+1;
-                                else
-                                {
-                                    for (auto i = r-1; i >= 0; i--)
-                                    {
-                                        if ((buf1[i] & 0b1000_0000) == 0 ||
-                                                (buf1[i] & 0b1100_0000) == 0b1100_0000)
-                                        {
-                                            split_r = i;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    writefln("OUT: buf=%s r=%s", buf1[0..split_r], split_r);
-                    /*ssize_t a = ((split_r-25 >= 0) ? split_r-25 : 0);
-                    ssize_t b = ((split_r+25 <= r) ? split_r+25 : r);
-                    writefln("OUT: split \"%s\"~\"%s\" r=%s", 
-                            buf1[a..split_r], 
-                            buf1[split_r..b], 
-                            split_r);*/
-                    ds = get_data_for_command_out(command_out_data(Clock.currTime().stdTime(), OutPipe.STDOUT, buf1[0..split_r].idup()));
-                    data3 = ds;
-                    res = cgs.db_command_output.put(cgs.txn, &key3, &data3);
-                    if (res != 0)
-                    {
-                        throw new Exception("DB command out not written");
-                    }
-                    cgs.OIT++;
-
-                    bool no_n = false;
-                    if (split_r < r)
-                    {
-                        buf1[0..r - split_r] = buf1[split_r..r];
-                        /*ssize_t c = ((50 < r - split_r) ? 50 : r - split_r);
-                        writefln("buf: \"%s\"", buf1[0..c]);*/
-                    }
-                    else
-                    {
-                        if (r < buf1.length/2)
-                        {
-                            if (buf1[r-1] != '\n')
-                            {
-                                r += r;
-                                no_n = true;
-
-                                writefln("Not ended with \\n line found");
-                            }
-                        }
-                    }
-                    if (!no_n) out_id1 = 0;
-                    buf1_r = r - split_r;
-                }
-                if (r < 0 && errno != EWOULDBLOCK)
-                {
-                    throw new Exception("read() error: " ~ fromStringz(strerror(errno)).idup());
-                }
+                eof += process_input(cgs, cwd, new_id, buf1, buf1_r, max1_r,
+                        out_id, out_id1,
+                        fdstdout, OutPipe.STDOUT);
             }
             if (FD_ISSET(fdstderr, &rfds))
             {
-                ssize_t r;
-                r = read(fdstderr, buf2[buf2_r..$].ptr, buf2[buf2_r..$].length);
-                if (r > 0)
-                {
-                    r += buf2_r;
-                    buffer_full |= (r >= buf2.length);
-                    Dbt key3, data3;
-                    if (out_id2 == 0)
-                    {
-                        out_id++;
-                        out_id2 = out_id;
-                    }
-                    ks = get_key_for_command_out(command_out_key(cwd, new_id, out_id2));
-                    key3 = ks;
-
-                    ssize_t split_r;
-                    if (r < buf2.length) split_r = r;
-                    else
-                    {
-                        ssize_t sym = buf2[r/2..$].lastIndexOf("\n");
-                        if (sym >= 0) split_r = r/2+sym+1;
-                        else
-                        {
-                            sym = buf2[r/2..$].lastIndexOf(".");
-                            if (sym >= 0) split_r = r/2+sym+1;
+                eof += process_input(cgs, cwd, new_id, buf2, buf2_r, max2_r,
+                        out_id, out_id2,
+                        fdstderr, OutPipe.STDERR);
+            }
+            if ( !stdin_closed && FD_ISSET(fdstdin, &wfds) )
+            {
+                receiveTimeout( 0.seconds, 
+                        (string input) {
+                            /*foreach (i; input)
+                            {
+                                writefln("INPUT: '%c' - %X (%d)", i, i, i);
+                            }*/
+                            if (input == "\x04") // Ctrl+D
+                            {
+                                writefln("Ctrl+D");
+                                cmd_pipes.stdin.close();
+                                stdin_closed = true;
+                            }
                             else
                             {
-                                sym = buf2[r/2..$].lastIndexOf(" ");
-                                if (sym >= 0) split_r = r/2+sym+1;
-                                else
+                                if (input == "\x03") // Ctrl+C
                                 {
-                                    for (auto i = r-1; i >= 0; i--)
-                                    {
-                                        if ((buf2[i] & 0b1000_0000) == 0 ||
-                                                (buf2[i] & 0b1100_0000) == 0b1100_0000)
-                                        {
-                                            split_r = i;
-                                            break;
-                                        }
-                                    }
+                                    writefln("Ctrl+C");
+                                    kill(cmd_pipes.pid, SIGINT);
                                 }
+                                core.sys.posix.unistd.write(fdstdin, input.ptr, input.length);
                             }
                         }
-                    }
-
-                    writefln("ERR: buf=%s r=%s", buf1[0..split_r], split_r);
-                    ds = get_data_for_command_out(command_out_data(Clock.currTime().stdTime(), OutPipe.STDERR, buf2[0..split_r].idup()));
-                    data3 = ds;
-                    res = cgs.db_command_output.put(cgs.txn, &key3, &data3);
-                    if (res != 0)
-                    {
-                        throw new Exception("DB command out not written");
-                    }
-                    cgs.OIT++;
-
-                    bool no_n = false;
-                    if (split_r < r)
-                    {
-                        buf2[0..r - split_r] = buf2[split_r..r];
-                    }
-                    else
-                    {
-                        if (r < buf2.length/2)
-                        {
-                            if (buf2[r-1] != '\n')
-                            {
-                                r += r;
-                                no_n = true;
-
-                                writefln("Not ended with \\n line found");
-                            }
-                        }
-                    }
-                    if (!no_n) out_id2 = 0;
-                    buf2_r = r - split_r;
-                }
-                if (r < 0 && errno != EWOULDBLOCK)
-                {
-                    throw new Exception("read() error: " ~ fromStringz(strerror(errno)).idup());
-                }
+                );
             }
         }
+        else
+        {
+            select_zero = true;
+        }
 
-        if (buffer_full == 0 && terminated) buffer_full = -1;
+        if (eof >= 2) select_zero = true;
 
         receiveTimeout( 0.seconds, 
                 (OwnerTerminated ot) {
                     writefln("Abort command due stopping parent");
-                    kill(cmd_pipes.pid);
+                    kill(cmd_pipes.pid, SIGKILL);
                     cgs.finish = true;
 
                     cmd_data.end = Clock.currTime().stdTime();
@@ -545,7 +954,7 @@ command(string cwd, string command, Tid tid)
         {
             destroy(cgs);
         }
-        fork_command(cgs, cwd, command);
+        fork_command(cgs, cwd, command, tid);
         cgs.commit();
     } catch (shared(Throwable) exc) {
         send(tid, exc);
@@ -558,6 +967,7 @@ command(string cwd, string command, Tid tid)
 public int
 run_command(GlobalState gs, string command)
 {
+    if (command == "") return -1;
     shared LsblkInfo[string] lsblk = to!(shared LsblkInfo[string])(gs.lsblk);
     shared CopyMapInfo[string] copy_map = cast(shared CopyMapInfo[string])(gs.copy_map);
 

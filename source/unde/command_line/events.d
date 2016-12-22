@@ -12,6 +12,7 @@ import derelict.sdl2.sdl;
 import std.stdio;
 import std.string;
 import std.utf;
+import std.concurrency;
 
 enum CommandLineEventHandlerResult
 {
@@ -24,9 +25,26 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
 {
     auto result = CommandLineEventHandlerResult.Pass;
 
-    if (gs.command_line.enter)
+    if (gs.command_line.enter || gs.command_line.command_in_focus_id > 0)
     {
          result = CommandLineEventHandlerResult.Block;
+    }
+
+    with (gs.command_line)
+    {
+        if (command_in_focus_id > 0)
+        {
+            if (gs.command_line.ctrl)
+            {
+                char[] scancode_name = fromStringz(SDL_GetScancodeName(scancode)).dup();
+                if (scancode_name >= "A" && scancode_name <= "Z")
+                {
+                    scancode_name[0] -= 'A'-1;
+                    writefln("Send %d", scancode_name[0]);
+                    send(command_in_focus_tid, scancode_name.idup());
+                }
+            }
+        }
     }
 
     switch(scancode)
@@ -56,20 +74,6 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
 
             break;
 
-        case SDL_SCANCODE_UP:
-            if (gs.command_line.enter)
-            {
-                hist_up(gs);
-            }
-            break;
-
-        case SDL_SCANCODE_DOWN:
-            if (gs.command_line.enter)
-            {
-                hist_down(gs);
-            }
-            break;
-
         case SDL_SCANCODE_LEFT:
             with (gs.command_line)
             {
@@ -77,6 +81,11 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
                 {
                     if (pos > 0)
                         pos -= command.strideBack(pos);
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[D";
+                    send(command_in_focus_tid, input);
                 }
             }
             break; 
@@ -89,8 +98,43 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
                     if (pos < command.length)
                         pos += command.stride(pos);
                 }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[C";
+                    send(command_in_focus_tid, input);
+                }
             }
             break; 
+
+        case SDL_SCANCODE_UP:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                    hist_up(gs);
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[A";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+
+        case SDL_SCANCODE_DOWN:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                    hist_down(gs);
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[B";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
 
         case SDL_SCANCODE_BACKSPACE:
             with (gs.command_line)
@@ -103,6 +147,31 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
                         command = (command[0..pos-sb] ~ command[pos..$]).idup();
                         pos -= sb;
                     }
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x08";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+
+        case SDL_SCANCODE_DELETE:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                    if ( command > "" && pos > 0 )
+                    {
+                        /*int sb = command.strideBack(pos);
+                        command = (command[0..pos-sb] ~ command[pos..$]).idup();
+                        pos -= sb;*/
+                    }
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[3~";
+                    send(command_in_focus_tid, input);
                 }
             }
             break;
@@ -128,6 +197,11 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
                         writefln("Command line close");
                         gs.command_line.enter = false;
                     }
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\n";
+                    send(command_in_focus_tid, input);
                 }
 
                 if (SDL_GetTicks() - last_enter < DOUBLE_DELAY)
@@ -155,6 +229,7 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             break;
     }
 
+    //writefln("%s", result);
     return result;
 }
 
@@ -173,19 +248,27 @@ process_event(GlobalState gs, ref SDL_Event event)
         case SDL_TEXTINPUT:
             with (gs.command_line)
             {
-                char[] input = fromStringz(cast(char*)event.text.text);
-
-                if (just_started_input && input == ";")
+                if (enter)
                 {
-                    just_started_input = false;
-                    return CommandLineEventHandlerResult.Block;
-                }
-                just_started_input = false;
+                    char[] input = fromStringz(cast(char*)event.text.text);
 
-                command = (command[0..pos] ~
-                    input ~
-                    command[pos..$]).idup();
-                pos += input.length;
+                    if (just_started_input && input == ";")
+                    {
+                        just_started_input = false;
+                        return CommandLineEventHandlerResult.Block;
+                    }
+                    just_started_input = false;
+
+                    command = (command[0..pos] ~
+                        input ~
+                        command[pos..$]).idup();
+                    pos += input.length;
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    char[] input = fromStringz(cast(char*)event.text.text);
+                    send(command_in_focus_tid, input.idup());
+                }
             }
             break;
 
@@ -227,7 +310,7 @@ process_event(GlobalState gs, ref SDL_Event event)
             }
             gs.mouse_screen_x = event.motion.x;
             gs.mouse_screen_y = event.motion.y;
-            gs.moved_while_click++;
+            gs.command_line.moved_while_click++;
             break;
             
         case SDL_MOUSEBUTTONDOWN:
@@ -235,7 +318,7 @@ process_event(GlobalState gs, ref SDL_Event event)
             {
                 case SDL_BUTTON_LEFT:
                     gs.mouse_buttons |= unDE_MouseButtons.Left;
-                    gs.moved_while_click = 0;
+                    gs.command_line.moved_while_click = 0;
                     break;
                 case SDL_BUTTON_MIDDLE:
                     gs.mouse_buttons |= unDE_MouseButtons.Middle;
@@ -252,7 +335,37 @@ process_event(GlobalState gs, ref SDL_Event event)
             switch (event.button.button)
             {
                 case SDL_BUTTON_LEFT:
-                    gs.mouse_buttons &= ~unDE_MouseButtons.Left;
+                    with (gs.command_line)
+                    {
+                        gs.mouse_buttons &= ~unDE_MouseButtons.Left;
+                        if (!moved_while_click)
+                        {
+                            if (SDL_GetTicks() - last_left_click < DOUBLE_DELAY)
+                            {
+                                command_in_focus_id = 0;
+                                SDL_StopTextInput();
+                            }
+                            else
+                            {
+                                //writefln("mouse_cmd_id=%s", mouse_cmd_id);
+                                auto ptid = mouse_cmd_id in gs.tid_by_command_id;
+                                if (ptid)
+                                {
+                                    writefln("Command in Focus");
+                                    command_in_focus_tid = *ptid;
+                                    command_in_focus_id = mouse_cmd_id;
+                                    enter = false;
+                                    SDL_StartTextInput();
+                                }
+                                else
+                                {
+                                    command_in_focus_id = 0;
+                                    SDL_StopTextInput();
+                                }
+                            }
+                            last_left_click = SDL_GetTicks();
+                        }
+                    }
                     break;
                 case SDL_BUTTON_MIDDLE:
                     gs.mouse_buttons &= ~unDE_MouseButtons.Middle;
@@ -268,15 +381,16 @@ process_event(GlobalState gs, ref SDL_Event event)
         case SDL_MOUSEWHEEL:
             with (gs.command_line)
             {
-                while (event.wheel.y > 0)
+                auto y = event.wheel.y;
+                while (y > 0)
                 {
                     fontsize++;
-                    event.wheel.y--;
+                    y--;
                 }
-                while (event.wheel.y < 0)
+                while (y < 0)
                 {
                     fontsize--;
-                    event.wheel.y++;
+                    y++;
                 }
 
                 font_changed = true;

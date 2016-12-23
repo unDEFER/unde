@@ -329,14 +329,15 @@ redraw:
                                                 if (rect.y < gs.screen.h && rect.y+rect.h > 0)
                                                 {
                                                     auto tt = gs.text_viewer.font.get_line_from_cache(cmd_data2.output, 
-                                                            fontsize, gs.screen.w-80, line_height, color);
+                                                            fontsize, gs.screen.w-80, line_height, color,
+                                                            cmd_data2.attrs);
                                                     if (!tt && !tt.texture)
                                                     {
                                                         throw new Exception("Can't create text_surface: "~
                                                                 to!string(TTF_GetError()));
                                                     }
-                                                    assert(rt.w == tt.w && rt.h == tt.h, format("rt.w=%d, tt.w=%d, rt.h=%d, tt.h=%d",
-                                                                rt.w, tt.w, rt.h, tt.h));
+                                                    //assert(rt.w == tt.w && rt.h == tt.h, format("rt.w=%d, tt.w=%d, rt.h=%d, tt.h=%d",
+                                                    //            rt.w, tt.w, rt.h, tt.h));
 
                                                     r = SDL_RenderCopy(gs.renderer, tt.texture, null, &rect);
                                                     if (r < 0)

@@ -90,12 +90,67 @@ enum OutPipe
     STDERR
 }
 
+enum CommansOutVersion
+{
+    Simple,
+    Screen
+}
+
+enum Attr
+{
+    Black,
+    Red,
+    Green,
+    Brown,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+    Bold = 0x100,
+    Underscore = 0x200,
+    HalfBright = 0x400,
+    Blink = 0x800,
+}
+
 struct command_out_data
 {
+    CommansOutVersion vers;
     ulong time;
     OutPipe pipe;
     size_t pos;
-    string output;
+    union
+    {
+        struct
+        {
+            int len;
+            ushort[] attrs;
+            string output;
+        };
+        struct
+        {
+            int cols;
+            int rows;
+            dchar[] screen;
+            ushort[] scr_attrs;
+        }
+    }
+
+    this(ulong time, OutPipe pipe, size_t pos, string output)
+    {
+        this.time = time;
+        this.pipe = pipe;
+        this.pos = pos;
+        this.output = output;
+    }
+    this(ulong time, OutPipe pipe, size_t pos, string output, ushort[] attrs)
+    {
+        this.time = time;
+        this.pipe = pipe;
+        this.pos = pos;
+        this.output = output;
+        this.len = cast(int)attrs.length;
+        this.attrs = attrs;
+    }
 }
 
 package string
@@ -133,33 +188,109 @@ get_data_for_command_out(command_out_data d)
 {
     string data_string;
     data_string = "";
+    data_string ~= (cast(char*)&d.vers)[0..d.vers.sizeof];
     data_string ~= (cast(char*)&d.time)[0..d.time.sizeof];
     data_string ~= (cast(char*)&d.pipe)[0..d.pipe.sizeof];
     data_string ~= (cast(char*)&d.pos)[0..d.pos.sizeof];
-    data_string ~= d.output;
+    final switch (d.vers)
+    {
+        case CommansOutVersion.Simple:
+            data_string ~= (cast(char*)&d.len)[0..d.len.sizeof];
+            assert(d.attrs.length == d.len);
+            data_string ~= (cast(char*)d.attrs.ptr)[0..ushort.sizeof*d.len];
+            data_string ~= d.output;
+            break;
+
+        case CommansOutVersion.Screen:
+            data_string ~= (cast(char*)&d.cols)[0..d.cols.sizeof];
+            data_string ~= (cast(char*)&d.rows)[0..d.rows.sizeof];
+            assert(d.cols*d.rows == d.screen.length);
+            assert(d.cols*d.rows == d.scr_attrs.length);
+            data_string ~= (cast(char*)d.screen.ptr)[0..dchar.sizeof*d.cols*d.rows];
+            data_string ~= (cast(char*)d.scr_attrs.ptr)[0..ushort.sizeof*d.cols*d.rows];
+            break;
+    }
+
     return data_string;
 }
 
 package void
 parse_data_for_command_out(string data_string, out command_out_data d)
 {
+    d.vers = *cast(CommansOutVersion*)data_string[0..d.vers.sizeof];
+    data_string = data_string[d.vers.sizeof..$];
     d.time = *cast(ulong*)data_string[0..d.time.sizeof];
     data_string = data_string[d.time.sizeof..$];
     d.pipe = *cast(OutPipe*)data_string[0..d.pipe.sizeof];
     data_string = data_string[d.pipe.sizeof..$];
     d.pos = *cast(size_t*)data_string[0..d.pos.sizeof];
-    d.output = data_string[d.pos.sizeof..$];
+    data_string = data_string[d.pos.sizeof..$];
+
+    final switch (d.vers)
+    {
+        case CommansOutVersion.Simple:
+            d.len = *cast(int*)data_string[0..d.len.sizeof];
+            data_string = data_string[d.len.sizeof..$];
+            d.attrs = (cast(ushort*)data_string.ptr)[0..d.len];
+            d.output = data_string[ushort.sizeof*d.len..$];
+            break;
+
+        case CommansOutVersion.Screen:
+            d.cols = *cast(int*)data_string[0..d.cols.sizeof];
+            data_string = data_string[d.cols.sizeof..$];
+            d.rows = *cast(int*)data_string[0..d.rows.sizeof];
+            data_string = data_string[d.rows.sizeof..$];
+            d.screen = (cast(dchar*)data_string.ptr)[0..d.cols*d.rows];
+            data_string = data_string[dchar.sizeof*d.cols*d.rows..$];
+            d.scr_attrs = (cast(ushort*)data_string.ptr)[0..d.cols*d.rows];
+            assert(data_string.length == ushort.sizeof*d.cols*d.rows);
+            break;
+    }
 }
 
 unittest
 {
-    command_out_data cmd_data = command_out_data(0xABCDEF0123456789,
-            OutPipe.STDERR, 3458, "Some output");
+    command_out_data cmd_data;
+    cmd_data.vers = CommansOutVersion.Simple;
+    cmd_data.time = 0xABCDEF0123456789;
+    cmd_data.pipe = OutPipe.STDERR;
+    cmd_data.pos = 3458;
+    cmd_data.len = 5;
+    cmd_data.attrs = [65535, 23524, 12235, 43567, 34585];
+    cmd_data.output = "Кра27";
     string data_string = get_data_for_command_out(cmd_data);
     command_out_data cmd_data2;
     parse_data_for_command_out(data_string, cmd_data2);
-    assert(cmd_data == cmd_data2, format("%s = %s", 
-                cmd_data.output, cmd_data2.output));
+    assert(cmd_data.vers == cmd_data2.vers &&
+            cmd_data.time == cmd_data2.time &&
+            cmd_data.pipe == cmd_data2.pipe &&
+            cmd_data.pos == cmd_data2.pos &&
+            cmd_data.len == cmd_data2.len &&
+            cmd_data.attrs == cmd_data2.attrs &&
+            cmd_data.output == cmd_data2.output, 
+            format("%s = %s", cmd_data.output, cmd_data2.output));
+
+    cmd_data = command_out_data();
+    cmd_data.vers = CommansOutVersion.Screen;
+    cmd_data.time = 0xABCDEF0123456789;
+    cmd_data.pipe = OutPipe.STDERR;
+    cmd_data.pos = 3458;
+    cmd_data.cols = 3;
+    cmd_data.rows = 2;
+    cmd_data.screen = "Кра276"d.dup();
+    cmd_data.scr_attrs = [65535, 23524, 12235, 43567, 34585, 456];
+    data_string = get_data_for_command_out(cmd_data);
+    cmd_data2 = command_out_data();
+    parse_data_for_command_out(data_string, cmd_data2);
+    assert(cmd_data.vers == cmd_data2.vers &&
+            cmd_data.time == cmd_data2.time &&
+            cmd_data.pipe == cmd_data2.pipe &&
+            cmd_data.pos == cmd_data2.pos &&
+            cmd_data.cols == cmd_data2.cols &&
+            cmd_data.rows == cmd_data2.rows &&
+            cmd_data.screen == cmd_data2.screen &&
+            cmd_data.scr_attrs == cmd_data2.scr_attrs, format("%s = %s", 
+                cmd_data.screen, cmd_data2.screen));
 }
 
 package ulong

@@ -6,6 +6,7 @@
     "authors": ["Nikolay (unDEFER) Krivchenkov"],
     "homepage": "http://unde.su",
     "license": "GPL-3.0 or later",
+    "libs-posix": ["util"],
     "dependencies": {
         "bdb2d": "~>5.3.28",
         "derelict-sdl2":"~>2.0.0",

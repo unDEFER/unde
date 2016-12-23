@@ -156,6 +156,34 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             }
             break;
 
+        case SDL_SCANCODE_F10:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    // ESC [11~ - F1
+                    // ESC [12~ - F2
+                    // ESC [13~ - F3
+                    // ESC [14~ - F4
+                    // ESC [15~ - F5
+
+                    // ESC [17~ - F6
+                    // ESC [18~ - F7
+                    // ESC [19~ - F8
+                    // ESC [20~ - F9
+                    // ESC [21~ - F10
+
+                    // ESC [23~ - F11
+                    // ESC [24~ - F12
+                    string input = "\x1B[21~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+
         case SDL_SCANCODE_DELETE:
             with (gs.command_line)
             {

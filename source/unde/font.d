@@ -9,6 +9,7 @@ version(FreeType)
 
 import unde.global_state;
 import unde.lib;
+import unde.command_line.db;
 
 import core.exception;
 import core.memory;
@@ -32,6 +33,7 @@ struct LineSize
     int line_width;
     int line_height;
     SDL_Color color;
+    ushort[] attrs;
 }
 
 class Font
@@ -150,7 +152,9 @@ class Font
         SDL_Rect rect = SDL_Rect(0, 0, 1, 1);
         for (size_t i = 0; i < text.length; i += text.mystride(i))
         {
-            string chr = text[i..i+text.mystride(i)].idup();
+            auto chrlen = text.mystride(i);
+            if (i+chrlen >= text.length) chrlen = 1;
+            string chr = text[i..i+chrlen].idup();
             //writefln("chr = %s", chr);
             auto st = get_char_from_cache(chr, size, color);
             if (!st) continue;
@@ -177,9 +181,9 @@ class Font
 
     auto
     get_line_from_cache(string text, 
-            int size, int line_width, int line_height, SDL_Color color)
+            int size, int line_width, int line_height, SDL_Color color, ushort[] attrs = null)
     {
-        auto linesize = LineSize(text.idup(), size, line_width, line_height, color);
+        auto linesize = LineSize(text.idup(), size, line_width, line_height, color, attrs.dup());
         auto tt = linesize in lines_cache;
         if (tt)
         {
@@ -235,10 +239,48 @@ class Font
             SDL_Rect[] chars = [];
 
             ssize_t index;
-            for (size_t i=0; i < text.length; i+=text.mystride(i))
+            ssize_t attrs_i;
+                //writefln("text=%s", text);
+                //writefln("attrs=%s", attrs);
+            for (size_t i=0; i < text.length; i+=text.mystride(i), attrs_i++)
             {
-                string chr = text[i..i+text.mystride(i)];
-                auto st = get_char_from_cache(chr, size, color);
+                auto chrlen = text.mystride(i);
+                if (i+chrlen >= text.length) chrlen = 1;
+                string chr = text[i..i+chrlen].idup();
+                SDL_Color real_color = color;
+                if ( attrs && attrs_i < attrs.length && attrs[attrs_i] != (Attr.Black<<4 | Attr.White) )
+                {
+                    switch (attrs[attrs_i] & 0x0F)
+                    {
+                        case Attr.Black:
+                            real_color = SDL_Color(0x00, 0x00, 0x00, 0xFF);
+                            break;
+                        case Attr.Red:
+                            real_color = SDL_Color(0xFF, 0x00, 0x00, 0xFF);
+                            break;
+                        case Attr.Green:
+                            real_color = SDL_Color(0x00, 0xFF, 0x00, 0xFF);
+                            break;
+                        case Attr.Brown:
+                            real_color = SDL_Color(0xFF, 0xFF, 0x30, 0xFF);
+                            break;
+                        case Attr.Blue:
+                            real_color = SDL_Color(0x00, 0x00, 0xFF, 0xFF);
+                            break;
+                        case Attr.Magenta:
+                            real_color = SDL_Color(0xFF, 0x00, 0xFF, 0xFF);
+                            break;
+                        case Attr.Cyan:
+                            real_color = SDL_Color(0x00, 0xFF, 0xFF, 0xFF);
+                            break;
+                        case Attr.White:
+                            real_color = SDL_Color(0xFF, 0xFF, 0xFF, 0xFF);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                auto st = get_char_from_cache(chr, size, real_color);
                 if (!st) continue;
 
                 SDL_Rect dst;
@@ -267,6 +309,61 @@ class Font
                 dst.y = cast(int)line_ay;
                 dst.w = st.w;
                 dst.h = st.h;
+
+                if ( attrs && attrs_i < attrs.length && attrs[attrs_i] && 0xF0 != (Attr.Black) )
+                {
+                    SDL_Color back_color;
+                    switch ((attrs[attrs_i] & 0xF0) >> 4)
+                    {
+                        case Attr.Black:
+                            back_color = SDL_Color(0x00, 0x00, 0x00, 0xFF);
+                            break;
+                        case Attr.Red:
+                            back_color = SDL_Color(0xFF, 0x00, 0x00, 0xFF);
+                            break;
+                        case Attr.Green:
+                            back_color = SDL_Color(0x00, 0xFF, 0x00, 0xFF);
+                            break;
+                        case Attr.Brown:
+                            back_color = SDL_Color(0xFF, 0xFF, 0x30, 0xFF);
+                            break;
+                        case Attr.Blue:
+                            back_color = SDL_Color(0x00, 0x00, 0xFF, 0xFF);
+                            break;
+                        case Attr.Magenta:
+                            back_color = SDL_Color(0xFF, 0x00, 0xFF, 0xFF);
+                            break;
+                        case Attr.Cyan:
+                            back_color = SDL_Color(0x00, 0xFF, 0xFF, 0xFF);
+                            break;
+                        case Attr.White:
+                            back_color = SDL_Color(0xFF, 0xFF, 0xFF, 0xFF);
+                            break;
+                        default:
+                            break;
+                    }
+                    SDL_Surface* surface = SDL_CreateRGBSurface(0,
+                            1,
+                            1,
+                            32, 0x00FF0000, 0X0000FF00, 0X000000FF, 0XFF000000);
+
+                    (cast(uint*) surface.pixels)[0] = (back_color.a<<24) | 
+                        (back_color.r << 16) | (back_color.g << 8) | back_color.b;
+
+                    auto btexture =
+                        SDL_CreateTextureFromSurface(renderer, surface);
+
+                    r = SDL_RenderCopyEx(renderer, btexture, null, &dst, 0,
+                                null, SDL_FLIP_NONE);
+                    if (r < 0)
+                    {
+                        writefln( "draw_line(): Error while render copy: %s", SDL_GetError().to!string() );
+                    }
+
+                    SDL_FreeSurface(surface);
+                    SDL_DestroyTexture(btexture);
+                }
+
 
                 r = SDL_RenderCopyEx(renderer, st.texture, null, &dst, 0,
                             null, SDL_FLIP_NONE);

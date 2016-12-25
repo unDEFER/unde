@@ -9,7 +9,6 @@ version(FreeType)
 
 import unde.global_state;
 import unde.lib;
-import unde.command_line.db;
 
 import core.exception;
 import core.memory;
@@ -24,6 +23,7 @@ struct CharSize
     string chr;
     int size;
     SDL_Color color;
+    size_t font;
 }
 
 struct LineSize
@@ -36,15 +36,32 @@ struct LineSize
     ushort[] attrs;
 }
 
+enum Attr
+{
+    Black,
+    Red,
+    Green,
+    Brown,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+    Bold = 0x100,
+    Underscore = 0x200,
+    HalfBright = 0x400,
+    Blink = 0x800,
+}
+
 class Font
 {
     SDL_Renderer *renderer;
     version(FreeType)
     {
         FT_Library  library;
-        FT_Face[2] face;
+        FT_Face[5] face;
     }
-    TTF_Font *[16][2]font;
+    TTF_Font *[16][5]font;
+    SDL_Texture*[16] attr_textures;
 
     long last_chars_cache_use;
     Texture_Tick[CharSize] chars_cache;
@@ -52,9 +69,9 @@ class Font
     Texture_Tick[LineSize] lines_cache;
     
     auto
-    get_char_from_cache(in string chr, in int size, in SDL_Color color)
+    get_char_from_cache(in string chr, in int size, in SDL_Color color, size_t f = 0)
     {
-        auto charsize = CharSize(chr.idup(), size, color);
+        auto charsize = CharSize(chr.idup(), size, color, f);
         auto st = charsize in chars_cache;
         if (st)
         {
@@ -65,7 +82,7 @@ class Font
         {
             version(FreeType)
             {
-                auto glyph_index = FT_Get_Char_Index(face[0], to!dchar(chr), FT_LOAD_RENDER);//FT_Get_Char_Index( face[0], to!dchar(chr) );
+                auto glyph_index = FT_Get_Char_Index(face[f], to!dchar(chr), FT_LOAD_RENDER);//FT_Get_Char_Index( face[0], to!dchar(chr) );
             }
             else
             {
@@ -75,7 +92,7 @@ class Font
                 {
                     dchr = to!dchar(chr);
                     wchr = to!wchar(dchr);
-                    glyph_index = TTF_GlyphIsProvided(font[0][size], wchr);
+                    glyph_index = TTF_GlyphIsProvided(font[f][size], wchr);
                 }
                 catch (Exception e)
                 {
@@ -85,13 +102,13 @@ class Font
             if (glyph_index > 0)
             {
                 surface = TTF_RenderUTF8_Blended(
-                    font[0][size], chr.toStringz(),
+                    font[f][size], chr.toStringz(),
                     color );
             }
             else
             {
                 surface = TTF_RenderUTF8_Blended(
-                    font[1][size], chr.toStringz(),
+                    font[4][size], chr.toStringz(),
                     color );
             }
 
@@ -179,6 +196,20 @@ class Font
         return rect;
     }
 
+    public SDL_Rect
+    get_size_of_line(int cols, int rows,
+            int size, SDL_Color color)
+    {
+        SDL_Rect rect = SDL_Rect(0, 0, 1, 1);
+        auto st = get_char_from_cache(" ", size, color);
+        if (!st) return rect;
+
+        rect.w = cols*st.w;
+        rect.h = rows*st.h;
+
+        return rect;
+    }
+
     auto
     get_line_from_cache(string text, 
             int size, int line_width, int line_height, SDL_Color color, ushort[] attrs = null)
@@ -231,7 +262,6 @@ class Font
 
             text ~= " ";
             if (text.length > 0 && text[$-1] == '\r') text = text[0..$-1];
-            int lines = 1;
 
             long line_ax = 0;
             long line_ay = 0;
@@ -248,7 +278,10 @@ class Font
                 if (i+chrlen >= text.length) chrlen = 1;
                 string chr = text[i..i+chrlen].idup();
                 SDL_Color real_color = color;
-                if ( attrs && attrs_i < attrs.length && attrs[attrs_i] != (Attr.Black<<4 | Attr.White) )
+                ushort attr = (Attr.Black<<4 | Attr.White);
+                if ( attrs && attrs_i < attrs.length )
+                    attr = attrs[attrs_i];
+                if ( attr != (Attr.Black<<4 | Attr.White) )
                 {
                     switch (attrs[attrs_i] & 0x0F)
                     {
@@ -280,7 +313,7 @@ class Font
                             break;
                     }
                 }
-                auto st = get_char_from_cache(chr, size, real_color);
+                auto st = get_char_from_cache(chr, size, real_color, (attr&Attr.Bold?1:0));
                 if (!st) continue;
 
                 SDL_Rect dst;
@@ -298,7 +331,6 @@ class Font
                     {
                         line_ax = 0;
                         line_ay += line_height;
-                        lines++;
                         if (chr == "\n") continue;
                     }
                 }
@@ -310,66 +342,197 @@ class Font
                 dst.w = st.w;
                 dst.h = st.h;
 
-                if ( attrs && attrs_i < attrs.length && attrs[attrs_i] && 0xF0 != (Attr.Black) )
+                if ( ((attr & 0xF0)>>4) != Attr.Black )
                 {
-                    SDL_Color back_color;
-                    switch ((attrs[attrs_i] & 0xF0) >> 4)
-                    {
-                        case Attr.Black:
-                            back_color = SDL_Color(0x00, 0x00, 0x00, 0xFF);
-                            break;
-                        case Attr.Red:
-                            back_color = SDL_Color(0xFF, 0x00, 0x00, 0xFF);
-                            break;
-                        case Attr.Green:
-                            back_color = SDL_Color(0x00, 0xFF, 0x00, 0xFF);
-                            break;
-                        case Attr.Brown:
-                            back_color = SDL_Color(0xFF, 0xFF, 0x30, 0xFF);
-                            break;
-                        case Attr.Blue:
-                            back_color = SDL_Color(0x00, 0x00, 0xFF, 0xFF);
-                            break;
-                        case Attr.Magenta:
-                            back_color = SDL_Color(0xFF, 0x00, 0xFF, 0xFF);
-                            break;
-                        case Attr.Cyan:
-                            back_color = SDL_Color(0x00, 0xFF, 0xFF, 0xFF);
-                            break;
-                        case Attr.White:
-                            back_color = SDL_Color(0xFF, 0xFF, 0xFF, 0xFF);
-                            break;
-                        default:
-                            break;
-                    }
-                    SDL_Surface* surface = SDL_CreateRGBSurface(0,
-                            1,
-                            1,
-                            32, 0x00FF0000, 0X0000FF00, 0X000000FF, 0XFF000000);
-
-                    (cast(uint*) surface.pixels)[0] = (back_color.a<<24) | 
-                        (back_color.r << 16) | (back_color.g << 8) | back_color.b;
-
-                    auto btexture =
-                        SDL_CreateTextureFromSurface(renderer, surface);
-
-                    r = SDL_RenderCopyEx(renderer, btexture, null, &dst, 0,
+                    r = SDL_RenderCopyEx(renderer, attr_textures[(attr & 0xF0)>>4], null, &dst, 0,
                                 null, SDL_FLIP_NONE);
                     if (r < 0)
                     {
                         writefln( "draw_line(): Error while render copy: %s", SDL_GetError().to!string() );
                     }
-
-                    SDL_FreeSurface(surface);
-                    SDL_DestroyTexture(btexture);
                 }
-
 
                 r = SDL_RenderCopyEx(renderer, st.texture, null, &dst, 0,
                             null, SDL_FLIP_NONE);
                 if (r < 0)
                 {
                     writefln( "draw_line(): Error while render copy: %s", SDL_GetError().to!string() );
+                }
+
+                if (attr & Attr.Underscore)
+                {
+                    dst.y += dst.h - 2;
+                    dst.h = 1;
+
+                    r = SDL_RenderCopyEx(renderer, attr_textures[attr & 0xF], null, &dst, 0,
+                                null, SDL_FLIP_NONE);
+                    if (r < 0)
+                    {
+                        writefln( "draw_line(): Error while render copy: %s", SDL_GetError().to!string() );
+                    }
+                }
+
+                line_ax += st.w;
+            }
+
+            r = SDL_SetRenderTarget(renderer, old_texture);
+            if (r < 0)
+            {
+                throw new Exception(format("get_line_from_cache: Error while restore render target old_texture: %s",
+                        SDL_GetError().to!string() ));
+            }
+
+            lines_cache[linesize] = Texture_Tick(rect.w, rect.h, chars, texture, SDL_GetTicks());
+            last_lines_cache_use = SDL_GetTicks();
+            tt = linesize in lines_cache;
+        }
+
+        return tt;
+    }
+
+    auto
+    get_line_from_cache(dchar[] text, int cols, int rows,
+            int size, int line_height, SDL_Color color, ushort[] attrs = null)
+    {
+        auto linesize = LineSize(to!(string)(text.idup()), size, cols*rows, line_height, color, attrs.dup());
+        auto tt = linesize in lines_cache;
+        if (tt)
+        {
+            tt.tick = SDL_GetTicks();
+            last_lines_cache_use = SDL_GetTicks();
+        }
+        else
+        {
+            auto rect = get_size_of_line(cols, rows, size, color);
+
+            if (rect.w > 8192) rect.w = 8192;
+            if (rect.h > 8192) rect.h = 8192;
+            auto texture = SDL_CreateTexture(renderer,
+                    SDL_PIXELFORMAT_ARGB8888,
+                    SDL_TEXTUREACCESS_TARGET,
+                    rect.w,
+                    rect.h);
+            if( !texture )
+            {
+                throw new Exception(format("get_line_from_cache: Error while creating texture: %s",
+                        SDL_GetError().to!string() ));
+            }
+
+            auto old_texture = SDL_GetRenderTarget(renderer);
+            int r = SDL_SetRenderTarget(renderer, texture);
+            if (r < 0)
+            {
+                throw new Exception(format("get_line_from_cache: Error while set render target texture: %s",
+                        SDL_GetError().to!string() ));
+            }
+
+            SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+            r = SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+            if (r < 0)
+            {
+                writefln("Can't SDL_SetRenderDrawColor: %s",
+                        to!string(SDL_GetError()));
+            }
+            r = SDL_RenderClear(renderer);
+            if (r < 0)
+            {
+                throw new Exception(format("Error while clear renderer: %s",
+                        SDL_GetError().to!string() ));
+            }
+
+            long line_ax = 0;
+            long line_ay = 0;
+
+            SDL_Rect[] chars = [];
+            chars.length = text.length;
+
+            ssize_t index;
+                //writefln("text=%s", text);
+                //writefln("attrs=%s", attrs);
+            for (size_t i=0; i < text.length; i++)
+            {
+                string chr = to!string(text[i]);
+                SDL_Color real_color = color;
+                ushort attr = (Attr.Black<<4 | Attr.White);
+                if ( attrs )
+                    attr = attrs[i];
+                if ( attr != (Attr.Black<<4 | Attr.White) )
+                {
+                    switch (attrs[i] & 0x0F)
+                    {
+                        case Attr.Black:
+                            real_color = SDL_Color(0x00, 0x00, 0x00, 0xFF);
+                            break;
+                        case Attr.Red:
+                            real_color = SDL_Color(0xFF, 0x00, 0x00, 0xFF);
+                            break;
+                        case Attr.Green:
+                            real_color = SDL_Color(0x00, 0xFF, 0x00, 0xFF);
+                            break;
+                        case Attr.Brown:
+                            real_color = SDL_Color(0xFF, 0xFF, 0x30, 0xFF);
+                            break;
+                        case Attr.Blue:
+                            real_color = SDL_Color(0x00, 0x00, 0xFF, 0xFF);
+                            break;
+                        case Attr.Magenta:
+                            real_color = SDL_Color(0xFF, 0x00, 0xFF, 0xFF);
+                            break;
+                        case Attr.Cyan:
+                            real_color = SDL_Color(0x00, 0xFF, 0xFF, 0xFF);
+                            break;
+                        case Attr.White:
+                            real_color = SDL_Color(0xFF, 0xFF, 0xFF, 0xFF);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                auto st = get_char_from_cache(chr, size, real_color, (attr&Attr.Bold?1:0));
+                if (!st) continue;
+
+                if (i > 0 && i%cols == 0)
+                {
+                    line_ax = 0;
+                    line_ay += line_height;
+                }
+
+                SDL_Rect dst;
+                dst.x = cast(int)line_ax;
+                dst.y = cast(int)line_ay;
+                dst.w = st.w;
+                dst.h = st.h;
+
+                chars[i] = dst;
+
+                if ( ((attr & 0xF0)>>4) != Attr.Black )
+                {
+                    r = SDL_RenderCopyEx(renderer, attr_textures[(attr & 0xF0)>>4], null, &dst, 0,
+                                null, SDL_FLIP_NONE);
+                    if (r < 0)
+                    {
+                        writefln( "draw_line(): Error while render copy: %s", SDL_GetError().to!string() );
+                    }
+                }
+
+                r = SDL_RenderCopyEx(renderer, st.texture, null, &dst, 0,
+                            null, SDL_FLIP_NONE);
+                if (r < 0)
+                {
+                    writefln( "draw_line(): Error while render copy: %s", SDL_GetError().to!string() );
+                }
+
+                if ( attr & Attr.Underscore )
+                {
+                    dst.y += dst.h - 4;
+                    dst.h = 1;
+
+                    r = SDL_RenderCopyEx(renderer, attr_textures[attr & 0xF], null, &dst, 0,
+                                null, SDL_FLIP_NONE);
+                    if (r < 0)
+                    {
+                        writefln( "draw_line(): Error while render copy: %s", SDL_GetError().to!string() );
+                    }
                 }
 
                 line_ax += st.w;
@@ -440,104 +603,153 @@ class Font
                         TTF_GetError().to!string()));
         }
 
-        // fonts with sizes 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181
-        foreach(i; 5..16)
+        version (linux)
         {
-            version (linux)
+            version(Fedora)
             {
-		version(Fedora)
-		{
-                font[0][i]=TTF_OpenFont(
-                        "/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
-                        cast(int)round(SQRT2^^i));
-		}
-		else
-		{
-                font[0][i]=TTF_OpenFont(
-                        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-                        cast(int)round(SQRT2^^i));
-		}
+                string[] font_list = ["/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
+                    "/usr/share/fonts/liberation/LiberationMono-Bold.ttf",
+                    "/usr/share/fonts/liberation/LiberationMono-Italic.ttf",
+                    "/usr/share/fonts/liberation/LiberationMono-BoldItalic.ttf",
+                    "/usr/share/fonts/dejavu/DejaVuSans.ttf"];
             }
-            version (Windows)
+            else
             {
-                font[0][i]=TTF_OpenFont(
-                        "C:\\Windows\\Fonts\\cour.ttf",
-                        cast(int)round(SQRT2^^i));
-            }
-            if(!font[0][i]) {
-                throw new Exception(format("TTF_OpenFont: %s\n",
-                        TTF_GetError().to!string()));
+                string[] font_list = ["/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationMono-Italic.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationMono-BoldItalic.ttf",
+                    "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf"];
             }
         }
-
-        version(FreeType)
+        else version (Windows)
         {
-            err = FT_New_Face( library, toStringz("/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf".dup), 0, &face[0] );
-            if (err) 
-            {
-                throw new Exception(format("FT_Open_Face 1: %s\n",
-                            err));
-            }
-        }
-
-        foreach(i; 5..16)
-        {
-            version (linux)
-            {
-		version(Fedora)
-		{
-                font[1][i]=TTF_OpenFont(
-                        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-                        cast(int)round(SQRT2^^i));
-		}
-		else
-		{
-                font[1][i]=TTF_OpenFont(
-                        "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",
-                        cast(int)round(SQRT2^^i));
-		}
-            }
-            version (Windows)
-            {
+            string[] font_list = ["C:\\Windows\\Fonts\\cour.ttf",
+                "C:\\Windows\\Fonts\\cour.ttf",
+                "C:\\Windows\\Fonts\\cour.ttf",
+                "C:\\Windows\\Fonts\\cour.ttf",
 		// Good fonts: MS GOTHIC, Segoe UI Emoji, Segoe UI Symbol
-                font[1][i]=TTF_OpenFont(
-                        "C:\\Windows\\Fonts\\seguisym.ttf",
-                        cast(int)round(SQRT2^^i));
-            }
-            if(!font[1][i]) {
-                throw new Exception(format("TTF_OpenFont: %s\n",
-                        TTF_GetError().to!string()));
-            }
+                "C:\\Windows\\Fonts\\seguisym.ttf"];
         }
 
-        version(FreeType)
+        // fonts with sizes 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181
+        foreach(f, fontname; font_list)
         {
-            err = FT_New_Face( library, toStringz("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf".dup), 0, &face[0] );
-            if (err) 
+            foreach(i; 5..16)
             {
-                throw new Exception(format("FT_Open_Face 2: %s\n",
-                            err));
+                font[f][i]=TTF_OpenFont(
+                        fontname.toStringz(),
+                        cast(int)round(SQRT2^^i));
+                if(!font[f][i]) {
+                    throw new Exception(format("TTF_OpenFont: %s\n",
+                            TTF_GetError().to!string()));
+                }
+            }
+
+            version(FreeType)
+            {
+                err = FT_New_Face( library, toStringz(fontname.dup), 0, &face[f] );
+                if (err) 
+                {
+                    throw new Exception(format("FT_Open_Face 1: %s\n",
+                                err));
+                }
             }
         }
 
+        SDL_Surface* surface = SDL_CreateRGBSurface(0,
+                1,
+                1,
+                32, 0x00FF0000, 0X0000FF00, 0X000000FF, 0XFF000000);
+
+        for (auto c = 0; c < 16; c++)
+        {
+            SDL_Color back_color;
+            switch (c)
+            {
+                case Attr.Black:
+                    back_color = SDL_Color(0x00, 0x00, 0x00, 0xFF);
+                    break;
+                case Attr.Red:
+                    back_color = SDL_Color(0xFF, 0x00, 0x00, 0xFF);
+                    break;
+                case Attr.Green:
+                    back_color = SDL_Color(0x00, 0xFF, 0x00, 0xFF);
+                    break;
+                case Attr.Brown:
+                    back_color = SDL_Color(0xFF, 0xFF, 0x30, 0xFF);
+                    break;
+                case Attr.Blue:
+                    back_color = SDL_Color(0x00, 0x00, 0xFF, 0xFF);
+                    break;
+                case Attr.Magenta:
+                    back_color = SDL_Color(0xFF, 0x00, 0xFF, 0xFF);
+                    break;
+                case Attr.Cyan:
+                    back_color = SDL_Color(0x00, 0xFF, 0xFF, 0xFF);
+                    break;
+                case Attr.White:
+                    back_color = SDL_Color(0xFF, 0xFF, 0xFF, 0xFF);
+                    break;
+                case 8+Attr.Black:
+                    back_color = SDL_Color(0x00, 0x00, 0x00, 0xFF);
+                    break;
+                case 8+Attr.Red:
+                    back_color = SDL_Color(0xFF, 0x00, 0x00, 0xFF);
+                    break;
+                case 8+Attr.Green:
+                    back_color = SDL_Color(0x00, 0xFF, 0x00, 0xFF);
+                    break;
+                case 8+Attr.Brown:
+                    back_color = SDL_Color(0xFF, 0xFF, 0x30, 0xFF);
+                    break;
+                case 8+Attr.Blue:
+                    back_color = SDL_Color(0x00, 0x00, 0xFF, 0xFF);
+                    break;
+                case 8+Attr.Magenta:
+                    back_color = SDL_Color(0xFF, 0x00, 0xFF, 0xFF);
+                    break;
+                case 8+Attr.Cyan:
+                    back_color = SDL_Color(0x00, 0xFF, 0xFF, 0xFF);
+                    break;
+                case 8+Attr.White:
+                    back_color = SDL_Color(0xFF, 0xFF, 0xFF, 0xFF);
+                    break;
+                default:
+                    break;
+            }
+
+            (cast(uint*) surface.pixels)[0] = (back_color.a<<24) | 
+                (back_color.r << 16) | (back_color.g << 8) | back_color.b;
+
+            attr_textures[c] =
+                SDL_CreateTextureFromSurface(renderer, surface);
+        }
+
+        SDL_FreeSurface(surface);
     }
 
     ~this()
     {
         version(FreeType)
         {
-            FT_Done_Face( face[0] );
-            FT_Done_Face( face[1] );
+            foreach(f; 0..5)
+            {
+                FT_Done_Face( face[f] );
+            }
         }
 
-        foreach(i; 5..16)
+        foreach(f; 0..5)
         {
-            TTF_CloseFont(font[0][i]);
+            foreach(i; 5..16)
+            {
+                TTF_CloseFont(font[f][i]);
+            }
         }
 
-        foreach(i; 5..16)
+        for (auto c = Attr.Black; c <= Attr.White; c++)
         {
-            TTF_CloseFont(font[1][i]);
+            SDL_DestroyTexture(attr_textures[c]);
         }
 
         TTF_Quit();

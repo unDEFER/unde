@@ -60,16 +60,23 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             }
             break;
         case SDL_SCANCODE_ESCAPE:
-            if (gs.command_line.enter)
+            with (gs.command_line)
             {
-                SDL_StopTextInput();
-                writefln("Command line close");
-                gs.command_line.enter = false;
-            }
-
-            if (gs.command_line.terminal)
-            {
-                gs.command_line.terminal = false;
+                if (enter)
+                {
+                    SDL_StopTextInput();
+                    writefln("Command line close");
+                    gs.command_line.enter = false;
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B";
+                    send(command_in_focus_tid, input);
+                }
+                else if (gs.command_line.terminal)
+                {
+                    gs.command_line.terminal = false;
+                }
             }
 
             break;
@@ -156,6 +163,180 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             }
             break;
 
+        case SDL_SCANCODE_INSERT:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[2~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+
+        case SDL_SCANCODE_HOME:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[7~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+
+        case SDL_SCANCODE_END:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[8~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+
+        case SDL_SCANCODE_TAB:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\t";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+
+        case SDL_SCANCODE_F1:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[11~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+        case SDL_SCANCODE_F2:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[12~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+        case SDL_SCANCODE_F3:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[13~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+        case SDL_SCANCODE_F4:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[14~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+        case SDL_SCANCODE_F5:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[15~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+
+        case SDL_SCANCODE_F6:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[17~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+        case SDL_SCANCODE_F7:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[18~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+        case SDL_SCANCODE_F8:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[19~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+        case SDL_SCANCODE_F9:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[20~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
         case SDL_SCANCODE_F10:
             with (gs.command_line)
             {
@@ -164,21 +345,62 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
                 }
                 else if (command_in_focus_id > 0)
                 {
-                    // ESC [11~ - F1
-                    // ESC [12~ - F2
-                    // ESC [13~ - F3
-                    // ESC [14~ - F4
-                    // ESC [15~ - F5
-
-                    // ESC [17~ - F6
-                    // ESC [18~ - F7
-                    // ESC [19~ - F8
-                    // ESC [20~ - F9
-                    // ESC [21~ - F10
-
-                    // ESC [23~ - F11
-                    // ESC [24~ - F12
                     string input = "\x1B[21~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+
+        case SDL_SCANCODE_F11:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[23~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+        case SDL_SCANCODE_F12:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[24~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+
+        case SDL_SCANCODE_PAGEUP:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[5~";
+                    send(command_in_focus_tid, input);
+                }
+            }
+            break;
+
+        case SDL_SCANCODE_PAGEDOWN:
+            with (gs.command_line)
+            {
+                if (enter)
+                {
+                }
+                else if (command_in_focus_id > 0)
+                {
+                    string input = "\x1B[6~";
                     send(command_in_focus_tid, input);
                 }
             }

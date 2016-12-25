@@ -3,6 +3,7 @@ module unde.command_line.db;
 import berkeleydb.all;
 import std.bitmanip;
 import std.string;
+import std.stdio;
 
 struct command_key
 {
@@ -96,22 +97,6 @@ enum CommansOutVersion
     Screen
 }
 
-enum Attr
-{
-    Black,
-    Red,
-    Green,
-    Brown,
-    Blue,
-    Magenta,
-    Cyan,
-    White,
-    Bold = 0x100,
-    Underscore = 0x200,
-    HalfBright = 0x400,
-    Blink = 0x800,
-}
-
 struct command_out_data
 {
     CommansOutVersion vers;
@@ -150,6 +135,17 @@ struct command_out_data
         this.output = output;
         this.len = cast(int)attrs.length;
         this.attrs = attrs;
+    }
+    this(ulong time, OutPipe pipe, size_t pos, int cols, int rows, dchar[] screen, ushort[] scr_attrs)
+    {
+        this.vers = CommansOutVersion.Screen;
+        this.time = time;
+        this.pipe = pipe;
+        this.pos = pos;
+        this.cols = cols;
+        this.rows = rows;
+        this.screen = screen;
+        this.scr_attrs = scr_attrs;
     }
 }
 

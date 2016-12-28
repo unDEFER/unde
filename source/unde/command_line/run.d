@@ -18,6 +18,7 @@ import std.string;
 import std.algorithm.sorting;
 import std.algorithm.searching;
 import std.algorithm.comparison;
+import std.range.primitives;
 import std.utf;
 import std.concurrency;
 import core.time;
@@ -37,6 +38,7 @@ import core.sys.posix.sys.ioctl;
 import core.sys.posix.termios;
 import core.sys.posix.sys.wait;
 
+import unde.command_line.delete_command;
 import unde.lib;
 
 import std.file;
@@ -57,12 +59,15 @@ enum Mode
 struct WorkMode
 {
     char[4096] buf;
-    size_t buf_r;
-    size_t max_r;
+    ssize_t buf_r;
+    ssize_t max_r;
     ushort cur_attr = Attr.Black<<4 | Attr.White;
     ushort[] attrs;
-    size_t attrs_r;
+    ssize_t attrs_r;
     ulong out_id1;
+    ssize_t saved_buf_r;
+    char[4096] prebuf;
+    ssize_t prebuf_r;
 }
 
 struct AltMode
@@ -76,6 +81,10 @@ struct AltMode
     ulong alt_out_id1;
     ushort alt_cur_attr = Attr.Black<<4 | Attr.White;
     string control_input;
+    ssize_t scroll_from;
+    ssize_t scroll_to;
+    int master_fd;
+    bool insert_mode;
 }
 
 private void
@@ -157,42 +166,6 @@ find_command_in_cwd(CMDGlobalState cgs, string cwd, string command)
     return id;
 }
 
-private void
-delete_command_out(CMDGlobalState cgs, string cwd, ulong cmd_id)
-{
-    Dbc cursor = cgs.db_command_output.cursor(cgs.txn, 0);
-    scope(exit) cursor.close();
-
-    Dbt key, data;
-    ulong id = 0;
-    string ks = get_key_for_command_out(command_out_key(cwd, cmd_id, 0));
-    key = ks;
-    auto res = cursor.get(&key, &data, DB_SET_RANGE);
-    if (res == DB_NOTFOUND)
-    {
-        return;
-    }
-
-    do
-    {
-        string key_string = key.to!(string);
-        command_out_key cmd_out_key;
-        parse_key_for_command_out(key_string, cmd_out_key);
-
-        if (cmd_out_key.cwd == cwd && cmd_out_key.cmd_id == cmd_id)
-        {
-            cursor.del();
-            cgs.OIT++;
-        }
-        else
-        {
-            break;
-        }
-
-    } while (cursor.get(&key, &data, DB_NEXT) == 0);
-
-}
-
 enum StateEscape
 {
     WaitEscape,
@@ -210,21 +183,37 @@ enum StateEscape
 private size_t
 process_escape_sequences(CMDGlobalState cgs, 
         ref Mode mode, ref WorkMode workmode, ref AltMode altmode,
-        ref char[4096] prebuf, ref ssize_t r)
+        ref ssize_t r)
 {
+    //process_escape_sequences: 1 sec, 403 ms of 3 s
     with(workmode)
     {
         StateEscape state;
         int substate;
         string text;
         int[] numbers;
-        for (ssize_t i = 0; i < r; i += prebuf.mystride(i))
+        ssize_t i;
+        ssize_t cur_chr_stride;
+        loop:
+        for (i = 0; i < r; i += cur_chr_stride)
         {
+            //Stat processing: 570 ms, 203 μs of 3 s
+            //assert(buf[0..buf_r].walkLength == attrs_r, format("walkLength=%d, attrs_r=%d", buf[0..buf_r].walkLength, attrs_r));
+
+            cur_chr_stride = prebuf.mystride(i);
+
             char[] chr;
-            if (i+prebuf.mystride(i) > r)
+            if (i+cur_chr_stride > r)
+            {
                 chr = prebuf[i..i+1];
+            }
             else
-                chr = prebuf[i..i+prebuf.mystride(i)];
+                chr = prebuf[i..i+cur_chr_stride];
+
+            if (i+1 >= r && chr.length == 1 && chr[0] & 0b1000_0000)
+            {
+                break;
+            }
 
             //writefln("Process '%c' - %X (%d)", prebuf[i], prebuf[i], prebuf[i]);
             final switch (state)
@@ -236,11 +225,23 @@ process_escape_sequences(CMDGlobalState cgs,
                         final switch(mode)
                         {
                             case Mode.Working:
+                            auto started2 = Clock.currTime();
+                                //Long character rpocessing: 455 ms, 532 μs of 3 s
                                 /*writefln("%s", chr);
                                 if (buf_r > 4)
                                     writefln("buf=%s", buf[buf_r-4..buf_r+4]);*/
+                                if (max_r >= buf.length || buf_r >= buf.length) break loop;
                                 auto chrlen = buf.mystride(buf_r);
-                                if (chrlen != chr.length)
+
+                                if (altmode.insert_mode)
+                                {
+                                    for (ssize_t j = max_r-1; j >= cast(ssize_t)(buf_r+chr.length); j--)
+                                    {
+                                        buf[j] = buf[j-chr.length];
+                                    }
+                                    max_r += chr.length;
+                                }
+                                else if (chrlen != chr.length)
                                 {
                                     //if (max_r + chr.length-chrlen > buf.length) max_r = buf.length - (chr.length-chrlen);
                                     if (max_r <= buf_r+chrlen) 
@@ -248,6 +249,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                         buf[max_r..buf_r+chrlen] = ' ';
                                         max_r = buf_r+chrlen;
                                     }
+                                    if (max_r+chr.length-chrlen >= buf.length) break loop;
                                     std.algorithm.mutation.copy(buf[buf_r+chrlen..max_r] , buf[buf_r+chr.length..max_r+chr.length-chrlen]);
                                     max_r += chr.length-chrlen;
                                 }
@@ -256,7 +258,9 @@ process_escape_sequences(CMDGlobalState cgs,
                                 /*if (buf_r > 4)
                                     writefln("After buf=%s", buf[buf_r-4..buf_r+4]);*/
                                 buf_r+=chr.length;
+                                //writefln("\nbuf_r=%d, buf=%s", buf_r, buf[0..buf_r]);
                                 if (buf_r > max_r) max_r = buf_r;
+                                if (attrs_r < 0) attrs_r = 0;
                                 if (attrs_r >= attrs.length) attrs.length = attrs_r+1;
                                 attrs[attrs_r] = cur_attr;
                                 attrs_r++;
@@ -273,11 +277,15 @@ process_escape_sequences(CMDGlobalState cgs,
                                         y++;
                                         x = 0;
                                     }
-                                    if (y >= rows)
+                                    if (y >= scroll_to)
                                     {
                                         y--;
-                                        std.algorithm.mutation.copy(buffer[cols..rows*cols], buffer[0..(rows-1)*cols]);
-                                        std.algorithm.mutation.copy(alt_attrs[cols..rows*cols], alt_attrs[0..(rows-1)*cols]);
+                                        std.algorithm.mutation.copy(buffer[scroll_from*cols + cols..scroll_to*cols], 
+                                                buffer[scroll_from*cols..(scroll_to-1)*cols]);
+                                        std.algorithm.mutation.copy(alt_attrs[scroll_from*cols + cols..scroll_to*cols], 
+                                                alt_attrs[scroll_from*cols..(scroll_to-1)*cols]);
+                                        buffer[(scroll_to-1)*cols..scroll_to*cols] = " "d[0];
+                                        alt_attrs[(scroll_to-1)*cols..scroll_to*cols] = 0;
                                     }
                                     continue;
                                 }
@@ -293,8 +301,9 @@ process_escape_sequences(CMDGlobalState cgs,
                         final switch(mode)
                         {
                             case Mode.Working:
-                                if (buf_r >= buf.strideBack(buf_r))
-                                    buf_r -= buf.strideBack(buf_r);
+                                if (buf_r > buf.length) buf_r = buf.length-1;
+                                if (buf_r > 0 && buf_r >= buf.mystrideBack(buf_r))
+                                    buf_r -= buf.mystrideBack(buf_r);
                                 attrs_r--;
                                 break;
                             case Mode.Alternate:
@@ -305,7 +314,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                 }
                                 break;
                         }
-                        //writefln("BackSpace");
+                        writefln("BackSpace");
                         //writefln("buf_r2=%s", buf[buf_r..max_r]);
                     }
                     else if (prebuf[i] == '\x09') //Tab
@@ -321,6 +330,7 @@ process_escape_sequences(CMDGlobalState cgs,
 
                                 for (ssize_t j=0; j < spaces; j++)
                                 {
+                                    if (buf_r >= buf.length) break loop;
                                     auto chrlen = buf.mystride(buf_r);
                                     if (chrlen != 1)
                                     {
@@ -337,6 +347,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                         writefln("After buf=%s", buf[buf_r-4..buf_r+4]);*/
                                     buf_r++;
                                     if (buf_r > max_r) max_r = buf_r;
+                                    if (attrs_r < 0) attrs_r = 0;
                                     if (attrs_r >= attrs.length) attrs.length = attrs_r+1;
                                     attrs[attrs_r] = cur_attr;
                                     attrs_r++;
@@ -357,11 +368,15 @@ process_escape_sequences(CMDGlobalState cgs,
                                             y++;
                                             x = 0;
                                         }
-                                        if (y >= rows)
+                                        if (y >= scroll_to)
                                         {
                                             y--;
-                                            std.algorithm.mutation.copy(buffer[cols..rows*cols], buffer[0..(rows-1)*cols]);
-                                            std.algorithm.mutation.copy(alt_attrs[cols..rows*cols], alt_attrs[0..(rows-1)*cols]);
+                                            std.algorithm.mutation.copy(buffer[scroll_from*cols + cols..scroll_to*cols], 
+                                                    buffer[scroll_from*cols..(scroll_to-1)*cols]);
+                                            std.algorithm.mutation.copy(alt_attrs[scroll_from*cols + cols..scroll_to*cols], 
+                                                    alt_attrs[scroll_from*cols..(scroll_to-1)*cols]);
+                                            buffer[(scroll_to-1)*cols..scroll_to*cols] = " "d[0];
+                                            alt_attrs[(scroll_to-1)*cols..scroll_to*cols] = 0;
                                         }
                                     }
                                 }
@@ -373,6 +388,25 @@ process_escape_sequences(CMDGlobalState cgs,
                         final switch(mode)
                         {
                             case Mode.Working:
+                                if (prebuf[i+1] != '\n')
+                                {
+                                    if (buf_r > buf.length) buf_r = buf.length;
+                                    ssize_t newline = buf[0..buf_r].lastIndexOf("\n");
+                                    if (newline < 0) newline = 0;
+                                    else newline++;
+                                    ssize_t wl = buf[newline..buf_r].myWalkLength();
+
+                                    writefln("\\r wl = %d", wl);
+                                    while ( wl%altmode.cols != 0 )
+                                    {
+                                        if (buf_r > 0)
+                                        {
+                                            buf_r -= buf.mystrideBack(buf_r);
+                                            attrs_r--;
+                                        }
+                                        wl--;
+                                    }
+                                }
                                 break;
 
                             case Mode.Alternate:
@@ -414,26 +448,68 @@ process_escape_sequences(CMDGlobalState cgs,
                                 /*writefln("%c", prebuf[i]);
                                 if (buf_r > 4)
                                     writefln("buf=%s", buf[buf_r-4..buf_r+4]);*/
-                                auto chrlen = buf.mystride(buf_r);
-                                if (chrlen != 1)
+                                if (prebuf[i] == '\n' && buf_r < max_r && i+1 >= r && r > 1)
                                 {
-                                    if (max_r <= buf_r+chrlen) 
-                                    {
-                                        buf[max_r..buf_r+chrlen] = ' ';
-                                        max_r = buf_r+chrlen;
-                                    }
-                                    std.algorithm.mutation.copy(buf[buf_r+chrlen..max_r], buf[buf_r+1..max_r+1-chrlen]);
-                                    max_r += 1-chrlen;
+                                    break loop;
                                 }
-                                buf[buf_r] = prebuf[i];
-                                /*if (buf_r > 4)
-                                    writefln("After buf=%s", buf[buf_r-4..buf_r+4]);*/
-                                buf_r++;
-                                if (buf_r > max_r) max_r = buf_r;
-                                //writefln("ADD '%c': buf=%s", prebuf[i], buf[0..max_r]);
-                                if (attrs_r >= attrs.length) attrs.length = attrs_r+1;
-                                attrs[attrs_r] = cur_attr;
-                                attrs_r++;
+                                if (prebuf[i] == '\n' && buf_r < max_r && i+1 < r && prebuf[i+1] == '\r')
+                                {
+                                    if (buf_r > buf.length) buf_r = buf.length;
+                                    ssize_t newline = buf[0..buf_r].lastIndexOf("\n");
+                                    if (newline < 0) newline = 0;
+                                    else newline++;
+                                    ssize_t wl = buf[newline..buf_r].myWalkLength();
+
+                                    writefln("\\n wl = %d", wl);
+                                    while (wl%altmode.cols != 0)
+                                    {
+                                        if (buf_r < buf.length)
+                                        {
+                                            buf_r += buf.mystride(buf_r);
+                                            attrs_r++;
+                                        }
+                                        wl++;
+                                    }
+                                    if (buf_r > max_r) max_r = buf_r;
+                                }
+                                else
+                                {
+                                    if (prebuf[i] == '\n')
+                                    {
+                                        buf_r = max_r;
+                                        attrs_r = attrs.length;
+                                    }
+                                    if (max_r >= buf.length || buf_r >= buf.length) break loop;
+                                    auto chrlen = buf.mystride(buf_r);
+                                    if (altmode.insert_mode)
+                                    {
+                                        for (ssize_t j = max_r-1; j >= buf_r+1; j--)
+                                            buf[j] = buf[j-1];
+                                        max_r++;
+                                    }
+                                    else if (chrlen != 1)
+                                    {
+                                        if (max_r <= buf_r+chrlen) 
+                                        {
+                                            buf[max_r..buf_r+chrlen] = ' ';
+                                            max_r = buf_r+chrlen;
+                                        }
+                                        std.algorithm.mutation.copy(buf[buf_r+chrlen..max_r], buf[buf_r+1..max_r+1-chrlen]);
+                                        max_r += 1-chrlen;
+                                    }
+                                    buf[buf_r] = prebuf[i];
+                                    /*if (buf_r > 4)
+                                        writefln("After buf=%s", buf[buf_r-4..buf_r+4]);*/
+                                    buf_r++;
+                                    //writefln("\nbuf_r=%d, buf=%s", buf_r, buf[0..buf_r]);
+                                    if (buf_r > max_r) max_r = buf_r;
+                                    //writefln("ADD '%c': buf=%s", prebuf[i], buf[0..max_r]);
+                                    if (attrs_r < 0) attrs_r = 0;
+                                    if (attrs_r >= attrs.length) attrs.length = attrs_r+1;
+                                    attrs[attrs_r] = cur_attr;
+                                    //writefln("attrs[%d]=%X, buf_r=%d", attrs_r, cur_attr, buf_r);
+                                    attrs_r++;
+                                }
                                 break;
 
                                 case Mode.Alternate:
@@ -446,10 +522,6 @@ process_escape_sequences(CMDGlobalState cgs,
                                         }
                                         else
                                         {
-                                            if (prebuf[i] == ':')
-                                            {
-                                                writefln(":%X", alt_cur_attr);
-                                            }
                                             buffer[y*cols+x] = to!dchar(prebuf[i]);
                                             alt_attrs[y*cols+x] = alt_cur_attr;
                                             x++;
@@ -459,13 +531,15 @@ process_escape_sequences(CMDGlobalState cgs,
                                                 x = 0;
                                             }
                                         }
-                                        if (y >= rows)
+                                        if (y >= scroll_to)
                                         {
                                             y--;
-                                            std.algorithm.mutation.copy(buffer[cols..rows*cols], buffer[0..(rows-1)*cols]);
-                                            std.algorithm.mutation.copy(alt_attrs[cols..rows*cols], alt_attrs[0..(rows-1)*cols]);
-                                            buffer[(rows-1)*cols..rows*cols] = " "d[0];
-                                            alt_attrs[(rows-1)*cols..rows*cols] = 0;
+                                            std.algorithm.mutation.copy(buffer[scroll_from*cols + cols..scroll_to*cols], 
+                                                    buffer[scroll_from*cols..(scroll_to-1)*cols]);
+                                            std.algorithm.mutation.copy(alt_attrs[scroll_from*cols + cols..scroll_to*cols], 
+                                                    alt_attrs[scroll_from*cols..(scroll_to-1)*cols]);
+                                            buffer[(scroll_to-1)*cols..scroll_to*cols] = " "d[0];
+                                            alt_attrs[(scroll_to-1)*cols..scroll_to*cols] = 0;
                                         }
                                     }
                                     break;
@@ -510,17 +584,17 @@ process_escape_sequences(CMDGlobalState cgs,
                                     with(altmode)
                                     {
                                         y--;
-                                        if (y < 0)
+                                        if (y < scroll_from)
                                         {
                                             y++;
-                                            writefln("reverse linefeed");
-                                            for (ssize_t R = rows-2; R >= 0; R--)
+                                            //writefln("reverse linefeed");
+                                            for (ssize_t R = scroll_to-2; R >= scroll_from; R--)
                                             {
                                                 buffer[(R+1)*cols..(R+2)*cols] = buffer[R*cols..(R+1)*cols];
                                                 alt_attrs[(R+1)*cols..(R+2)*cols] = alt_attrs[R*cols..(R+1)*cols];
                                             }
-                                            buffer[0..cols] = " "d[0];
-                                            alt_attrs[0..cols] = 0;
+                                            buffer[scroll_from*cols..scroll_from*cols+cols] = " "d[0];
+                                            alt_attrs[scroll_from*cols..scroll_from*cols+cols] = 0;
                                         }
                                     }
                                     break;
@@ -535,10 +609,32 @@ process_escape_sequences(CMDGlobalState cgs,
                         case '7':
                             /*Save current state (cursor coordinates,
                               attributes, character sets pointed at by G0, G1).*/
+                            final switch(mode)
+                            {
+                                case Mode.Working:
+                                    saved_buf_r = buf_r;
+                                    break;
+
+                                case Mode.Alternate:
+                                    with(altmode)
+                                    {
+                                    }
+                            }
                             state = StateEscape.WaitEscape;
                             break;
                         case '8':
                             /*Restore state most recently saved by ESC 7.*/
+                            final switch(mode)
+                            {
+                                case Mode.Working:
+                                    buf_r = saved_buf_r;
+                                    break;
+
+                                case Mode.Alternate:
+                                    with(altmode)
+                                    {
+                                    }
+                            }
                             state = StateEscape.WaitEscape;
                             break;
                         case '%':
@@ -576,7 +672,7 @@ process_escape_sequences(CMDGlobalState cgs,
                         text = "";
                         i++;
                     }
-                    if (prebuf[i..i+2] == "1;")
+                    else if (prebuf[i..i+2] == "1;")
                     {
                         substate = 1;
                         state = StateEscape.WaitText;
@@ -672,10 +768,76 @@ process_escape_sequences(CMDGlobalState cgs,
                     {
                         case '@':
                             /*Insert the indicated # of blank characters.*/
+                            ssize_t num = 1;
+                            if (text > "")
+                                num = to!int(text);
+                            final switch(mode)
+                            {
+                                case Mode.Working:
+                                    if (max_r+num > buf.length) num = buf.length-max_r;
+                                    for (ssize_t j = max_r-1; j >= buf_r; j--)
+                                    {
+                                        buf[j+num] = buf[j];
+                                    }
+                                    buf[buf_r..buf_r+num] = ' ';
+                                    max_r+=num;
+                                    break;
+                                case Mode.Alternate:
+                            }
                             state = StateEscape.WaitEscape;
                             break;
                         case 'A':
                             /*Move cursor up the indicated # of rows.*/
+                            final switch(mode)
+                            {
+                                case Mode.Working:
+                                    
+                                    ssize_t nl = buf[0..buf_r].lastIndexOf("\n");
+                                    if (nl < 0) nl = 0;
+                                    else nl++;
+
+                                    ssize_t wl = buf[nl..buf_r].myWalkLength();
+                                    writefln("UP: wl=%d", wl);
+                                    if (wl >= altmode.cols)
+                                    {
+                                        wl -= altmode.cols;
+                                        ssize_t pos = nl;
+                                        for (ssize_t j=0; j < wl; j++)
+                                        {
+                                            if (pos >= buf.length) break;
+                                            pos += buf.mystride(pos);
+                                        }
+
+                                        writefln("UP: buf_r=%d, pos=%d", buf_r, pos);
+                                        buf_r = pos;
+                                        attrs_r = buf[0..buf_r].myWalkLength();
+                                    }
+                                    else if (nl > 2)
+                                    {
+                                        ssize_t nl2 = buf[0..nl-1].lastIndexOf("\n");
+                                        if (nl2 < 0) nl2 = 0;
+                                        else nl2++;
+
+                                        ssize_t pos = nl2;
+                                        for (ssize_t j=0; j < wl; j++)
+                                        {
+                                            if (pos >= buf.length) break;
+                                            pos += buf.mystride(pos);
+                                        }
+
+                                        writefln("UP2: buf_r=%d, pos=%d", buf_r, pos);
+                                        writefln("UP2: buf=%s|%s", buf[0..pos], buf[pos..buf_r]);
+                                        buf_r = pos;
+                                        attrs_r = buf[0..buf_r].myWalkLength();
+                                    }
+
+                                    break;
+
+                                case Mode.Alternate:
+                                    with(altmode)
+                                    {
+                                    }
+                            }
                             state = StateEscape.WaitEscape;
                             break;
                         case 'B':
@@ -696,15 +858,18 @@ process_escape_sequences(CMDGlobalState cgs,
                                     //writefln("buf before Right: %s", buf[buf_r..max_r]);
                                     while (num > 0)
                                     {
+                                        if (buf_r >= buf.length) break;
                                         buf_r += buf.mystride(buf_r);
                                         if (buf_r > max_r)
                                         {
                                             buf[max_r..buf_r] = ' ';
                                             max_r = buf_r;
                                         }
-                                        attrs_r++;
+                                        //attrs_r++;
                                         num--;
                                     }
+
+                                    attrs_r = buf[0..buf_r].myWalkLength();
                                     //writefln("buf after Right: %s", buf[buf_r..max_r]);
                                     break;
                                 case Mode.Alternate:
@@ -733,7 +898,7 @@ process_escape_sequences(CMDGlobalState cgs,
                             {
                                 case Mode.Working:
                                     if (buf_r > 0)
-                                        buf_r -= buf.strideBack(buf_r);
+                                        buf_r -= buf.mystrideBack(buf_r);
                                     break;
                                 case Mode.Alternate:
                                     with(altmode)
@@ -754,6 +919,56 @@ process_escape_sequences(CMDGlobalState cgs,
                             break;
                         case 'G':
                             /*Move cursor to indicated column in current row.*/
+                            ssize_t num = 1;
+                            if (text > "")
+                                num = to!int(text);
+
+                            final switch(mode)
+                            {
+                                case Mode.Working:
+
+                                    if (buf_r > buf.length) buf_r = buf.length;
+                                    ssize_t newline = buf[0..buf_r].lastIndexOf("\n");
+                                    if (newline < 0) newline = 0;
+                                    else newline++;
+                                    ssize_t wl = buf[newline..buf_r].myWalkLength();
+
+                                    if ( (num-1) < wl%altmode.cols )
+                                    {
+                                        while (wl%altmode.cols != (num-1))
+                                        {
+                                            if (buf_r > 0)
+                                            {
+                                                buf_r -= buf.mystrideBack(buf_r);
+                                                attrs_r--;
+                                            }
+                                            wl--;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        while (wl%altmode.cols != num-1)
+                                        {
+                                            if (buf_r < buf.length)
+                                            {
+                                                if (buf_r >= max_r)
+                                                    buf[buf_r] = ' ';
+                                                buf_r += buf.mystride(buf_r);
+                                                attrs_r++;
+                                            }
+                                            wl++;
+                                        }
+                                    }
+                                    break;
+
+                                case Mode.Alternate:
+                                    with(altmode)
+                                    {
+                                        x = num-1;
+                                    }
+                                    break;
+                            }
+
                             state = StateEscape.WaitEscape;
                             break;
                         case 'H':
@@ -785,6 +1000,43 @@ process_escape_sequences(CMDGlobalState cgs,
                                ESC [ 3 J: erase whole display including scroll-back
                                prebuffer (since Linux 3.0).
                              */
+                            size_t num = 0;
+                            if (text != "") num = to!int(text);
+
+                            final switch(mode)
+                            {
+                                case Mode.Working:
+                                    if (max_r > buf.length) max_r = buf.length;
+                                    buf[buf_r..max_r] = ' ';
+                                    break;
+                                case Mode.Alternate:
+                                    with(altmode)
+                                    {
+                                        switch (num)
+                                        {
+                                            case 0:
+                                                buffer[y*cols+x..$] = " "d[0];
+                                                alt_attrs[y*cols+x..$] = Attr.Black<<4 | Attr.White;
+                                                break;
+                                            case 1:
+                                                buffer[0..y*cols+x] = " "d[0];
+                                                alt_attrs[0..y*cols+x] = Attr.Black<<4 | Attr.White;
+                                                break;
+                                            case 2:
+                                                buffer[0..$] = " "d[0];
+                                                alt_attrs[0..$] = Attr.Black<<4 | Attr.White;
+                                                break;
+                                            case 3:
+                                                buffer[0..$] = " "d[0];
+                                                alt_attrs[0..$] = Attr.Black<<4 | Attr.White;
+                                                break;
+                                            default:
+                                                writefln("UNKNOWN sequence ESC [ %d J", num);
+                                                break;
+                                        }
+                                    }
+                                    break;
+                            }
                             state = StateEscape.WaitEscape;
                             break;
                         case 'K':
@@ -797,6 +1049,7 @@ process_escape_sequences(CMDGlobalState cgs,
                             {
                                 case Mode.Working:
                                     if (max_r > buf.length) max_r = buf.length;
+                                    if (max_r <= buf_r) max_r = buf_r+1;
                                     buf[buf_r..max_r] = ' ';
                                     break;
                                 case Mode.Alternate:
@@ -811,10 +1064,49 @@ process_escape_sequences(CMDGlobalState cgs,
                             break;
                         case 'L':
                             /*Insert the indicated # of blank lines.*/
+                            size_t num = 1;
+                            if (text != "") num = to!int(text);
+
+                            final switch(mode)
+                            {
+                                case Mode.Working:
+                                    break;
+                                case Mode.Alternate:
+                                    with(altmode)
+                                    {
+                                            for (ssize_t R = scroll_to-num-1; R >= y; R--)
+                                            {
+                                                buffer[(R+num)*cols..(R+num+1)*cols] = buffer[R*cols..(R+1)*cols];
+                                                alt_attrs[(R+num)*cols..(R+num+1)*cols] = alt_attrs[R*cols..(R+1)*cols];
+                                            }
+                                            buffer[y*cols..(y+num)*cols] = " "d[0];
+                                            alt_attrs[y*cols..(y+num)*cols] = 0;
+                                    }
+                            }
+
                             state = StateEscape.WaitEscape;
                             break;
                         case 'M':
                             /*Delete the indicated # of lines.*/
+                            size_t num = 1;
+                            if (text != "") num = to!int(text);
+
+                            final switch(mode)
+                            {
+                                case Mode.Working:
+                                    break;
+                                case Mode.Alternate:
+                                    with(altmode)
+                                    {
+                                            std.algorithm.mutation.copy(buffer[(y+num)*cols..scroll_to*cols], 
+                                                    buffer[y*cols..(scroll_to-num)*cols]);
+                                            std.algorithm.mutation.copy(alt_attrs[(y+num)*cols..scroll_to*cols], 
+                                                    alt_attrs[y*cols..(scroll_to-num)*cols]);
+                                            buffer[(scroll_to-num)*cols..scroll_to*cols] = " "d[0];
+                                            alt_attrs[(scroll_to-num)*cols..scroll_to*cols] = 0;
+                                    }
+                            }
+
                             state = StateEscape.WaitEscape;
                             break;
                         case 'P':
@@ -831,12 +1123,49 @@ process_escape_sequences(CMDGlobalState cgs,
                                     {
                                         bytes += buf.mystride(buf_r+bytes);
                                     }
-                                    if (buf_r+bytes > max_r) bytes = max_r - buf_r;
-                                    if (attrs_r+num > attrs.length) num = attrs.length - attrs_r;
-                                    std.algorithm.mutation.copy(buf[buf_r+bytes..max_r], buf[buf_r..max_r-bytes]);
-                                    std.algorithm.mutation.copy(attrs[attrs_r+num..$], attrs[attrs_r..$-num]);
-                                    max_r -= bytes;
-                                    attrs.length -= num;
+
+                                    ssize_t newline = buf[0..buf_r].lastIndexOf("\n");
+                                    if (newline < 0) newline = 0;
+                                    else newline++;
+                                    ssize_t wl = buf[newline..buf_r].myWalkLength();
+
+                                    ssize_t eol = buf_r;
+                                    ssize_t eol_attrs = attrs_r;
+                                    do
+                                    {
+                                        if (eol >= max_r) break;
+                                        eol += buf.mystride(eol);
+                                        wl++;
+                                        eol_attrs++;
+                                    }
+                                    while (wl%altmode.cols != 0);
+
+                                    bool eob, eoa;
+                                    if (eol > max_r) 
+                                    {
+                                        eob = true;
+                                        eol = max_r;
+                                    }
+                                    if (eol_attrs > attrs.length)
+                                    {
+                                        eoa = true;
+                                        eol_attrs = attrs.length;
+                                    }
+
+                                    if (buf_r+bytes > eol) bytes = eol - buf_r;
+                                    if (attrs_r+num > eol_attrs) num = eol_attrs - attrs_r;
+                                    if (buf_r+bytes != eol)
+                                        std.algorithm.mutation.copy(buf[buf_r+bytes..eol], buf[buf_r..eol-bytes]);
+                                    if (attrs_r+num != eol_attrs)
+                                        std.algorithm.mutation.copy(attrs[attrs_r+num..eol_attrs], attrs[attrs_r..eol_attrs-num]);
+
+                                    buf[eol-bytes..eol] = ' ';
+                                    attrs[eol_attrs-num..eol_attrs] = Attr.Black<<4 | Attr.White;
+
+                                    if (eob)
+                                        max_r -= bytes;
+                                    if (eoa)
+                                        attrs.length -= num;
                                     //writefln("buf='%s'", buf[buf_r..max_r]);
                                     break;
                                 case Mode.Alternate:
@@ -866,6 +1195,20 @@ process_escape_sequences(CMDGlobalState cgs,
                             break;
                         case 'd':
                             /*Move cursor to the indicated row, current column.*/
+                            ssize_t num = 1;
+                            if (text > "")
+                                num = to!int(text);
+
+                            final switch(mode)
+                            {
+                                case Mode.Working:
+                                    break;
+                                case Mode.Alternate:
+                                    with(altmode)
+                                    {
+                                        y = num-1;
+                                    }
+                            }
                             state = StateEscape.WaitEscape;
                             break;
                         case 'e':
@@ -891,6 +1234,10 @@ process_escape_sequences(CMDGlobalState cgs,
                             {
                                 switch(numbers[0])
                                 {
+                                    case 4:
+                                        /*Turn on insert mode*/
+                                        altmode.insert_mode = true;
+                                        break;
                                     case 25:
                                         /*Turn on cursor*/
                                         break;
@@ -904,6 +1251,21 @@ process_escape_sequences(CMDGlobalState cgs,
                                         altmode.buffer.length = altmode.cols*altmode.rows;
                                         altmode.alt_attrs.length = altmode.cols*altmode.rows;
                                         altmode.buffer[0..$] = " "d[0];
+                                        altmode.scroll_from = 0;
+                                        altmode.scroll_to = altmode.rows;
+
+                                        /*winsize ws;
+                                        ws.ws_row = cast(ushort)altmode.rows;
+                                        ws.ws_col = cast(ushort)altmode.cols;
+                                        ws.ws_xpixel = 1024;
+                                        ws.ws_ypixel = 768;
+
+                                        auto rc = ioctl(altmode.master_fd, TIOCSWINSZ, &ws);
+                                        if (rc < 0)
+                                        {
+                                            throw new Exception("ioctl(TIOCSWINSZ) error: " ~ fromStringz(strerror(errno)).idup());
+                                        }*/
+
                                         break;
                                     default:
                                         writefln("Unknown mode %d", numbers[0]);
@@ -921,6 +1283,10 @@ process_escape_sequences(CMDGlobalState cgs,
                             {
                                 switch(numbers[0])
                                 {
+                                    case 4:
+                                        /*Turn off insert mode*/
+                                        altmode.insert_mode = false;
+                                        break;
                                     case 25:
                                         /*Turn off cursor*/
                                         break;
@@ -929,6 +1295,19 @@ process_escape_sequences(CMDGlobalState cgs,
                                         break;
                                     case 1049:
                                         mode = Mode.Working;
+
+                                        /*winsize ws;
+                                        ws.ws_row = cast(ushort)altmode.rows;
+                                        ws.ws_col = 160;
+                                        ws.ws_xpixel = 1024;
+                                        ws.ws_ypixel = 768;
+
+                                        auto rc = ioctl(altmode.master_fd, TIOCSWINSZ, &ws);
+                                        if (rc < 0)
+                                        {
+                                            throw new Exception("ioctl(TIOCSWINSZ) error: " ~ fromStringz(strerror(errno)).idup());
+                                        }*/
+
                                         break;
                                     default:
                                         writefln("Unknown mode %d", numbers[0]);
@@ -1042,6 +1421,30 @@ process_escape_sequences(CMDGlobalState cgs,
                             break;
                         case 'n':
                             /*Status report (see below).*/
+                            if (text > "") 
+                                numbers ~= to!int(text);
+
+                            final switch(mode)
+                            {
+                                case Mode.Working:
+                                    break;
+                                case Mode.Alternate:
+                                    with(altmode)
+                                    {
+                                        switch (numbers[0])
+                                        {
+                                            case 5:
+                                                altmode.control_input ~= "\x1B[0n";
+                                                break;
+                                            case 6:
+                                                altmode.control_input ~= format("\x1B[%d;%dR", y+1, x+1);
+                                                break;
+                                            default:
+                                                writefln("UNKNOWN sequence ESC [ %d n", numbers[0]);
+                                        }
+                                    }
+                            }
+
                             state = StateEscape.WaitEscape;
                             break;
                         case 'q':
@@ -1054,6 +1457,24 @@ process_escape_sequences(CMDGlobalState cgs,
                             break;
                         case 'r':
                             /*Set scrolling region; parameters are top and bottom row.*/
+                            if (text > "") 
+                                numbers ~= to!int(text);
+
+                            if (numbers.length == 0) numbers ~= 1;
+                            if (numbers.length == 1) numbers ~= altmode.rows;
+
+                            final switch(mode)
+                            {
+                                case Mode.Working:
+                                    break;
+                                case Mode.Alternate:
+                                    with(altmode)
+                                    {
+                                        scroll_from = numbers[0]-1;
+                                        scroll_to = numbers[1];
+                                    }
+                            }
+
                             state = StateEscape.WaitEscape;
                             break;
                         case 's':
@@ -1168,6 +1589,14 @@ process_escape_sequences(CMDGlobalState cgs,
             }
         }
 
+        if (i < r)
+        {
+            std.algorithm.mutation.copy(prebuf[i..r], prebuf[0..r-i]);
+            prebuf_r = r-i;
+        }
+        else
+            prebuf_r = 0;
+
         return max_r;
     }
 }
@@ -1182,20 +1611,21 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
     {
         //writefln("max_r=%d", max_r);
         ssize_t r;
-        char[4096] prebuf;
         //writefln("buf.length-buf_r = %d", buf.length-buf_r);
-        auto r1 = read(fd, prebuf.ptr, buf.length-buf_r-16);
-        //writefln("READED: %s", prebuf[0..r1]);
+        auto r1 = read(fd, prebuf[prebuf_r..$].ptr, buf.length-prebuf_r-buf_r-16);
         auto buf_length_was = buf.length-buf_r;
 
-        assert(buf.length > buf_r);
+        if(buf.length < buf_r) buf_r = buf.length-1;
 
         if (r1 > 0)
         {
+            r1 += prebuf_r;
+            //writefln("READED: %s", prebuf[0..r1]);
             //writefln("r1=%d, buf.length-buf_r=%d", r1, buf.length-buf_r);
 
             //writefln("read r=%d", r);
-            r = process_escape_sequences(cgs, mode, workmode, altmode, prebuf, r1);
+            buf[max_r..$] = ' ';
+            r = process_escape_sequences(cgs, mode, workmode, altmode, r1);
 
             //writefln("PROCESSED: r=%d buf=%s", r, buf[0..r]);
 
@@ -1217,18 +1647,17 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                     key = ks;
 
                     ssize_t split_r;
-                    if (r1 < buf_length_was) split_r = r;
-                    else
                     {
-                        ssize_t sym = buf[r/2..$].lastIndexOf("\n");
-                        if (sym >= 0) split_r = r/2+sym+1;
+                        ssize_t sym = buf[0..r].lastIndexOf("\n");
+                        if (sym >= 0) split_r = 0+sym+1;
+                        else if (r1 < buf_length_was) split_r = r;
                         else
                         {
-                            sym = buf[r/2..$].lastIndexOf(".");
+                            sym = buf[r/2..r].lastIndexOf(".");
                             if (sym >= 0) split_r = r/2+sym+1;
                             else
                             {
-                                sym = buf[r/2..$].lastIndexOf(" ");
+                                sym = buf[r/2..r].lastIndexOf(" ");
                                 if (sym >= 0) split_r = r/2+sym+1;
                                 else
                                 {
@@ -1246,11 +1675,7 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                         }
                     }
 
-                    ssize_t attrs_split_r = 0;
-                    for (auto i = 0; i < split_r; i+=buf.mystride(i))
-                    {
-                        attrs_split_r++;
-                    }
+                    ssize_t attrs_split_r = buf[0..split_r].myWalkLength();
                     if (attrs_split_r > attrs.length) attrs.length = attrs_split_r+1;
 
                     //writefln("Write to DB split_r=%d buf=%s, pos = %s", split_r, buf[0..split_r], split_r > buf_r ? buf_r : split_r);
@@ -1277,19 +1702,22 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                             writefln("char=%c code=%X (%d)", buf[i], buf[i], buf[i]);
                         }
                     }*/
-                    /*ssize_t a = ((split_r-50 >= 0) ? split_r-50 : 0);
-                    ssize_t b = ((split_r+50 <= r) ? split_r+50 : r);
-                    writefln("OUT: split \"%s\"~\"%s\" r=%s", 
-                            buf[a..split_r], 
-                            buf[split_r..b], 
-                            split_r);*/
+                    /*if (split_r < r)
+                    {
+                        ssize_t a = ((split_r-50 >= 0) ? split_r-50 : 0);
+                        ssize_t b = ((split_r+50 < r) ? split_r+50 : r);
+                        writefln("OUT: split \"%s\"~\"%s\" r=%s", 
+                                buf[a..split_r], 
+                                buf[split_r..b], 
+                                split_r);
+                    }*/
                     bool no_n = false;
                     if (split_r < r)
                     {
-                        buf[0..r - split_r] = buf[split_r..r];
+                        std.algorithm.mutation.copy(buf[split_r..r], buf[0..r - split_r]);
                         max_r = r - split_r;
 
-                        attrs[0..$ - attrs_split_r] = attrs[attrs_split_r..$];
+                        std.algorithm.mutation.copy(attrs[attrs_split_r..$], attrs[0..$ - attrs_split_r]);
                         attrs.length -= attrs_split_r;
 
                         if (split_r > buf_r)
@@ -1329,6 +1757,29 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                     {
                             //writefln("%s: Ended with \\n line found: %s", pipe, buf[0..split_r]);
                         out_id1 = 0;
+                    }
+                    //writefln("split_r = %d, r = %d, max_r = %d, buf_r=%d", split_r, r, max_r, buf_r);
+                    if (split_r < r && max_r > 0)
+                    {
+                        if (out_id1 == 0)
+                        {
+                            out_id++;
+                            out_id1 = out_id;
+                        }
+                        ks = get_key_for_command_out(command_out_key(cwd, new_id, out_id1));
+                        key = ks;
+                    //writefln("buf = %s", buf[0..buf_r]);
+                        ds = get_data_for_command_out(
+                                command_out_data(Clock.currTime().stdTime(), pipe, 
+                                    buf_r,
+                                    buf[0..buf_r].idup(),
+                                    attrs[0..attrs_r]));
+                        data = ds;
+                        res = cgs.db_command_output.put(cgs.txn, &key, &data);
+                        if (res != 0)
+                        {
+                            throw new Exception("DB command out not written");
+                        }
                     }
                     break;
 
@@ -1371,12 +1822,14 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
 private int
 fork_command(CMDGlobalState cgs, string cwd, string command, Tid tid)
 {
+    writefln("1. Recommit");
     cgs.recommit();
 
 /*db_commands
 cwd, id
     command, start, end, status*/
 
+    writefln("2. get_max_id_of_cwd");
     ulong id = get_max_id_of_cwd(cgs, cwd);
     ulong new_id = id+1;
     if (id > 0)
@@ -1385,18 +1838,25 @@ cwd, id
         //writefln("last_id=%s (%%1000=%s), new_id=%s", id, id%1000, new_id);
     }
 
+    writefln("3. delete_command_out");
     if (command[0] != '*' && command[0] != '+')
     {
         ulong replace_id = find_command_in_cwd(cgs, cwd, command);
 
+        delete_command_out(cgs, cwd, replace_id);
+
         string ks = get_key_for_command(command_key(cwd, replace_id));
         Dbt key = ks;
         auto res = cgs.db_commands.del(cgs.txn, &key);
-
-        delete_command_out(cgs, cwd, replace_id);
     }
 
+    writefln("4. send command id");
     tid.send(thisTid, "command_id", new_id);
+
+    writefln("5. Put command");
+
+    cgs.commit();
+    cgs.recommit();
 
     Dbt key, data;
     string ks = get_key_for_command(command_key(cwd, new_id));
@@ -1411,18 +1871,19 @@ cwd, id
         throw new Exception("DB command not written");
     }
 
-    Dbt key2, data2;
-    string ks2 = get_key_for_command(command_key(cwd, id));
-    key2 = ks;
-
     if (command[0] == '+' && id > 0)
     {
+        Dbt key2, data2;
+        string ks2 = get_key_for_command(command_key(cwd, id));
+        key2 = ks2;
+
+        writefln("6 Wait while previous command will be done");
         do
         {
             res = cgs.db_commands.get(cgs.txn, &key2, &data2);
             if (res == 0)
             {
-                string data2_string = data.to!(string);
+                string data2_string = data2.to!(string);
                 command_data cmd_data2;
                 parse_data_for_command(data2_string, cmd_data2);
                 if (cmd_data2.end > 0)
@@ -1460,10 +1921,16 @@ cwd, id
         while (true);
     }
 
+    if (command[0] == '*' || command[0] == '+')
+    {
+        command = command[1..$];
+    }
+
 /*db_command_output
 cwd, command_id, out_id,
     time, stderr/stdout, output*/
 
+    writefln("7 Chdir");
     chdir(cwd);
 
     version(WithoutTTY)
@@ -1478,6 +1945,7 @@ cwd, command_id, out_id,
     }
     else
     {
+    writefln("8 Fork");
         winsize ws;
         ws.ws_row = 25;
         ws.ws_col = 80;
@@ -1491,6 +1959,10 @@ cwd, command_id, out_id,
 
         auto stderrPipe = pipe();
 
+        immutable(char) *bash = "/bin/bash".toStringz();
+        immutable(char) *c_opt = "-c".toStringz();
+        immutable(char) *command_z = command.toStringz();
+
         auto pid = forkpty(&master, null, null, &ws);
         if (pid < 0)
         {
@@ -1501,7 +1973,7 @@ cwd, command_id, out_id,
             stderrPipe.readEnd.close();
             dup2(stderrPipe.writeEnd.fileno, stderr.fileno);
             stderrPipe.writeEnd.close();
-            execl("/bin/bash".toStringz(), "/bin/bash".toStringz(), "-c".toStringz(), command.toStringz(), null);
+            execl(bash, bash, c_opt, command_z, null);
             writefln("execl() error: " ~ fromStringz(strerror(errno)).idup());
             assert(0);
         }
@@ -1530,6 +2002,7 @@ cwd, command_id, out_id,
         waitpid(pid, null, 0);
     }
 
+    writefln("9 Write time of start");
     cmd_data.start = Clock.currTime().stdTime();
     ds = get_data_for_command(cmd_data);
     data = ds;
@@ -1543,6 +2016,7 @@ cwd, command_id, out_id,
     cgs.commit();
     cgs.recommit();
 
+    writefln("10 Set non block mode");
     /*Make file descriptions NON_BLOCKING */
     set_non_block_mode(fdstdout);
     set_non_block_mode(fdstderr);
@@ -1565,7 +2039,9 @@ cwd, command_id, out_id,
     WorkMode workmode1;
     WorkMode workmode2;
     AltMode altmode;
+    altmode.master_fd = master;
     bool stdin_closed = false;
+    writefln("12 Start main loop");
     while(!cgs.finish)
     {
         cgs.recommit();
@@ -1606,6 +2082,7 @@ cwd, command_id, out_id,
         }
 
         int eof = 0;
+        bool pause = true;
 
         retval = select(fdmax+1, &rfds, stdin_closed ? null : &wfds, null, &tv);
         if (retval < 0)
@@ -1617,12 +2094,14 @@ cwd, command_id, out_id,
         {
             if (FD_ISSET(fdstdout, &rfds))
             {
+                pause = false;
                 eof += process_input(cgs, cwd, new_id, 
                         out_id, mode, workmode1, altmode,
                         fdstdout, OutPipe.STDOUT);
             }
             if (FD_ISSET(fdstderr, &rfds))
             {
+                pause = false;
                 eof += process_input(cgs, cwd, new_id, 
                         out_id, mode, workmode2, altmode,
                         fdstderr, OutPipe.STDERR);
@@ -1690,7 +2169,17 @@ cwd, command_id, out_id,
                     {
                         throw new Exception("DB command not written");
                     }
+                },
+                (string cmd, typeof(SIGTERM) signal)
+                {
+                    if (cmd == "signal")
+                    {
+                        kill(pid, signal);
+                    }
                 } );
+
+        if (pause)
+            Thread.sleep(100.msecs);
     }
     return result;
 }
@@ -1718,8 +2207,6 @@ public int
 run_command(GlobalState gs, string command)
 {
     if (command == "") return -1;
-    shared LsblkInfo[string] lsblk = to!(shared LsblkInfo[string])(gs.lsblk);
-    shared CopyMapInfo[string] copy_map = cast(shared CopyMapInfo[string])(gs.copy_map);
 
     writefln("Start command %s", command);
     auto tid = spawn(&.command, gs.full_current_path, command, thisTid);

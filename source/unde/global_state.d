@@ -244,9 +244,14 @@ mixin template recommit()
     long beginned;
     SysTime txn_started;
 
+    bool is_time_to_recommit()
+    {
+        return OIT > 100 || OIT > 0 && (Clock.currTime() - txn_started) > 200.msecs;
+    }
+
     void recommit()
     {
-        if (OIT > 100 || (Clock.currTime() - txn_started) > 200.msecs)
+        if (OIT > 100 || OIT > 0 && (Clock.currTime() - txn_started) > 200.msecs)
         {
             commit();
         }
@@ -263,6 +268,17 @@ mixin template recommit()
         if (txn !is null)
         {
             txn.commit();
+            txn = null;
+            OIT = 0;
+        }
+    }
+
+    void abort()
+    {
+        //writefln("Tid=%s, OIT=%d, time=%s", thisTid, OIT, Clock.currTime() - txn_started);
+        if (txn !is null)
+        {
+            txn.abort();
             txn = null;
             OIT = 0;
         }
@@ -460,6 +476,8 @@ struct Command_Line_State{
     long last_left_click;
     long last_right_click;
     int moved_while_click;
+
+    void delegate() on_click;
 }
 
 class GlobalState
@@ -527,6 +545,7 @@ class GlobalState
     string[][Tid] movers;
     string[][Tid] changers_rights;
     string[Tid] commands;
+    ulong[Tid] delete_commands;
     Tid[ulong] tid_by_command_id;
     Pid[] pids;
     CopyMapInfo[string] copy_map;

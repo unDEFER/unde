@@ -37,7 +37,8 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             if (gs.command_line.ctrl)
             {
                 char[] scancode_name = fromStringz(SDL_GetScancodeName(scancode)).dup();
-                if (scancode_name >= "A" && scancode_name <= "Z")
+                if (scancode_name >= "A" && scancode_name <= "Z" ||
+                        scancode_name == "[" || scancode_name == "]")
                 {
                     scancode_name[0] -= 'A'-1;
                     writefln("Send %d", scancode_name[0]);
@@ -441,6 +442,7 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
                     else
                     {
                         run_command(gs, command);
+                        hist_cmd_id = 0;
                         command = "";
                         pos = 0;
                         SDL_StopTextInput();
@@ -594,6 +596,10 @@ process_event(GlobalState gs, ref SDL_Event event)
                             {
                                 command_in_focus_id = 0;
                                 SDL_StopTextInput();
+                            }
+                            else if (on_click !is null)
+                            {
+                                on_click();
                             }
                             else
                             {

@@ -492,11 +492,27 @@ string getParent(string path)
 }
 
 size_t
-mystride(T)(T str, size_t pos)
+mystride(T)(ref T str, size_t pos)
+{
+    /* stride falls with OutOfMemoryError Sometimes
+       on not correct symbols, so we will use out stride */
+
+    if ((str[pos] & 0b1000_0000) == 0)
+        return 1;
+
+    size_t i;
+    for (i=pos+1; i < str.length && (str[i] & 0b1100_0000) == 0b1000_0000; i++)
+    {
+    }
+    return i-pos;
+}
+
+size_t
+mystrideBack(T)(ref T str, size_t pos)
 {
     try
     {
-        return str.stride(pos);
+        return str.strideBack(pos);
     }
     catch (UnicodeException e)
     {
@@ -504,6 +520,17 @@ mystride(T)(T str, size_t pos)
     catch (UTFException e)
     {
     }
+    catch (OutOfMemoryError e)
+    {
+    }
     return 1;
 }
 
+size_t
+myWalkLength(char[] str)
+{
+    size_t n = 0;
+    for (size_t i = 0; i < str.length; i+=mystride(str, i))
+        n++;
+    return n;
+}

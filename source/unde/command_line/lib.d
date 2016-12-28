@@ -6,6 +6,8 @@ import unde.lib;
 import unde.slash;
 import unde.font;
 import unde.command_line.db;
+import unde.command_line.run;
+import unde.command_line.delete_command;
 
 import berkeleydb.all;
 
@@ -19,7 +21,8 @@ import std.stdio;
 import std.math;
 import std.conv;
 import std.utf;
-
+import std.concurrency;
+import core.sys.posix.signal;
 
 private void
 fix_bottom_line(GlobalState gs)
@@ -214,6 +217,8 @@ draw_command_line(GlobalState gs)
     {
         if (SDL_GetTicks() - last_redraw > 200)
         {
+            on_click = null;
+
             /* Setup texture render target */
             auto old_texture = SDL_GetRenderTarget(gs.renderer);
             int r = SDL_SetRenderTarget(gs.renderer, texture);
@@ -366,8 +371,10 @@ redraw:
                                                                 writefln("text: %s", cmd_data2.output);
                                                             }
 
-                                                            if (nav_skip_cmd_id == 0 && first_cmd &&
-                                                                    cmd_data2.pos < tt.chars.length)
+                                                            /* Draw cursor */
+                                                            if (first_cmd &&
+                                                                    cmd_data2.pos < tt.chars.length &&
+                                                                    command_in_focus_id == cmd_key2.cmd_id)
                                                             {
                                                                 auto rect2= tt.chars[cmd_data2.pos];
                                                                 rect2.x += 40;
@@ -375,8 +382,8 @@ redraw:
                                                                 string chr = " ";
                                                                 try
                                                                 {
-                                                                if (cmd_data2.pos < cmd_data2.output.length)
-                                                                    chr = cmd_data2.output[cmd_data2.pos..cmd_data2.pos+cmd_data2.output.stride(cmd_data2.pos)];
+                                                                if (cmd_data2.pos >= 0 && cmd_data2.pos < cmd_data2.output.length && cmd_data2.pos + cmd_data2.output.mystride(cmd_data2.pos) < cmd_data2.output.length)
+                                                                    chr = cmd_data2.output[cmd_data2.pos..cmd_data2.pos+cmd_data2.output.mystride(cmd_data2.pos)];
                                                                 }
                                                                 catch (UTFException exp)
                                                                 {
@@ -442,8 +449,10 @@ redraw:
                                                                 writefln("text: %s", cmd_data2.output);
                                                             }
 
-                                                            if (nav_skip_cmd_id == 0 && first_cmd &&
-                                                                    cmd_data2.pos < tt.chars.length)
+                                                            /* Draw cursor */
+                                                            if (first_cmd &&
+                                                                    cmd_data2.pos < tt.chars.length &&
+                                                                    command_in_focus_id == cmd_key2.cmd_id)
                                                             {
                                                                 auto rect2= tt.chars[cmd_data2.pos];
                                                                 rect2.x += 40;
@@ -531,15 +540,28 @@ redraw:
 
                                 int line_height = cast(int)(round(SQRT2^^9)*1.2);
                                 auto rt = gs.text_viewer.font.get_size_of_line(cmd_data.command, 
-                                        9, gs.screen.w-80, line_height, SDL_Color(0xFF,0x00,0xFF,0xFF));
+                                        9, gs.screen.w-120, line_height, SDL_Color(0xFF,0x00,0xFF,0xFF));
 
                                 int lines = rt.h / line_height;
                                 y_off -= line_height*lines;
 
+                                /* Draw Status of cmd*/
                                 if (cmd_data.end == 0)
                                 {
+                                    string symbol;
+                                    SDL_Color color;
+                                    if (cmd_key.id in gs.tid_by_command_id)
+                                    {
+                                        symbol = "⬤";
+                                        color = SDL_Color(0x00, 0xFF, 0x00, 0xFF);
+                                    }
+                                    else
+                                    {
+                                        symbol = "◯";
+                                        color = SDL_Color(0xFF, 0x00, 0x00, 0xFF);
+                                    }
                                     auto tt = gs.text_viewer.font.get_char_from_cache(
-                                            "⬤", 7, SDL_Color(0x00, 0xFF, 0x00, 0xFF));
+                                            symbol, 7, color);
 
                                     auto rect = SDL_Rect();
                                     rect.x = 30;
@@ -561,7 +583,7 @@ redraw:
                                     if (cmd_data.status != 0) color = SDL_Color(0xFF,0x00,0x00,0xFF);
 
                                     auto tt = gs.text_viewer.font.get_line_from_cache(format("%d", cmd_data.status), 
-                                            8, gs.screen.w-80, line_height, color);
+                                            8, gs.screen.w-120, line_height, color);
                                     if (!tt && !tt.texture)
                                     {
                                         throw new Exception("Can't create text_surface: "~
@@ -585,13 +607,14 @@ redraw:
 
                                 auto i = 0;
                                 auto rect = SDL_Rect();
-                                rect.x = 55;
+                                rect.x = 60;
                                 rect.y = cast(int)(y_off + 4 + line_height*i);
                                 rect.w = rt.w;
                                 rect.h = rt.h;
 
                                 if (rect.y < gs.screen.h && rect.y+rect.h > 0)
                                 {
+                                    /* Draw command */
                                     auto tt = gs.text_viewer.font.get_line_from_cache(cmd_data.command, 
                                             9, gs.screen.w-80, line_height, SDL_Color(0xFF,0x00,0xFF,0xFF));
                                     if (!tt && !tt.texture)
@@ -607,6 +630,182 @@ redraw:
                                                 "draw_command_line(), 7: Error while render copy: %s", 
                                                 SDL_GetError().to!string() );
                                     }
+
+                                    if (cmd_data.end == 0 && cmd_key.id in gs.tid_by_command_id)
+                                    {
+                                        /* Control elements for running processes */
+                                        auto color = SDL_Color(0x80,0x80,0x00,0xFF);
+
+                                        /*SIGTERM*/
+                                        auto tt2 = gs.text_viewer.font.get_line_from_cache("TERM", 
+                                                8, gs.screen.w-80, line_height, color);
+                                        if (!tt2 && !tt2.texture)
+                                        {
+                                            throw new Exception("Can't create text_surface: "~
+                                                    to!string(TTF_GetError()));
+                                        }
+
+                                        auto rect2 = SDL_Rect();
+                                        rect2.x = rect.x+rect.w + 5;
+                                        rect2.y = rect.y+3;
+                                        rect2.w = tt2.w;
+                                        rect2.h = tt2.h;
+
+                                        if (gs.mouse_screen_x >= rect2.x && gs.mouse_screen_x <= rect2.x+rect2.w &&
+                                                gs.mouse_screen_y >= rect2.y && gs.mouse_screen_y <= rect2.y+rect2.h)
+                                        {
+                                            color = SDL_Color(0xFF,0xFF,0x00,0xFF);
+                                            tt2 = gs.text_viewer.font.get_line_from_cache("TERM", 
+                                                    8, gs.screen.w-80, line_height, color);
+                                            if (!tt2 && !tt2.texture)
+                                            {
+                                                throw new Exception("Can't create text_surface: "~
+                                                        to!string(TTF_GetError()));
+                                            }
+
+                                            auto get_handler1(Tid tid)
+                                            {
+                                                return ()
+                                                {
+                                                    send(tid, "signal", SIGTERM);
+                                                };
+                                            }
+
+                                            on_click = get_handler1(gs.tid_by_command_id[cmd_key.id]);
+                                        }
+
+                                        r = SDL_RenderCopy(gs.renderer, tt2.texture, null, &rect2);
+                                        if (r < 0)
+                                        {
+                                            writefln(
+                                                    "draw_command_line(), 8: Error while render copy: %s", 
+                                                    SDL_GetError().to!string() );
+                                        }
+
+                                        /*SIGKILL*/
+                                        color = SDL_Color(0x80,0x00,0x00,0x80);
+                                        auto tt3 = gs.text_viewer.font.get_line_from_cache("KILL", 
+                                                8, gs.screen.w-80, line_height, color);
+                                        if (!tt3 && !tt3.texture)
+                                        {
+                                            throw new Exception("Can't create text_surface: "~
+                                                    to!string(TTF_GetError()));
+                                        }
+
+                                        auto rect3 = SDL_Rect();
+                                        rect3.x = rect2.x+rect2.w + 5;
+                                        rect3.y = rect2.y;
+                                        rect3.w = tt3.w;
+                                        rect3.h = tt3.h;
+
+                                        if (gs.mouse_screen_x >= rect3.x && gs.mouse_screen_x <= rect3.x+rect3.w &&
+                                                gs.mouse_screen_y >= rect3.y && gs.mouse_screen_y <= rect3.y+rect3.h)
+                                        {
+                                            color = SDL_Color(0xFF,0x00,0x00,0x80);
+                                            tt3 = gs.text_viewer.font.get_line_from_cache("KILL", 
+                                                    8, gs.screen.w-80, line_height, color);
+                                            if (!tt2 && !tt2.texture)
+                                            {
+                                                throw new Exception("Can't create text_surface: "~
+                                                        to!string(TTF_GetError()));
+                                            }
+
+                                            auto get_handler2(Tid tid)
+                                            {
+                                                return ()
+                                                {
+                                                    send(tid, "signal", SIGKILL);
+                                                };
+                                            }
+
+                                            on_click = get_handler2(gs.tid_by_command_id[cmd_key.id]);
+                                        }
+
+                                        r = SDL_RenderCopy(gs.renderer, tt3.texture, null, &rect3);
+                                        if (r < 0)
+                                        {
+                                            writefln(
+                                                    "draw_command_line(), 9: Error while render copy: %s", 
+                                                    SDL_GetError().to!string() );
+                                        }
+                                    }
+                                    else
+                                    {
+                                        /* Control elements for not running processes */
+
+                                        /*PLAY*/
+                                        auto color = SDL_Color(0x00,0x80,0x00,0xFF);
+                                        auto tt2 = gs.text_viewer.font.get_char_from_cache(
+                                                "⏵", 9, color);
+
+                                        auto rect2 = SDL_Rect();
+                                        rect2.x = rect.x+rect.w;
+                                        rect2.y = rect.y;
+                                        rect2.w = tt2.w;
+                                        rect2.h = tt2.h;
+
+                                        if (gs.mouse_screen_x >= rect2.x && gs.mouse_screen_x <= rect2.x+rect2.w &&
+                                                gs.mouse_screen_y >= rect2.y && gs.mouse_screen_y <= rect2.y+rect2.h)
+                                        {
+                                            color = SDL_Color(0x00,0xFF,0x00,0xFF);
+                                            tt2 = gs.text_viewer.font.get_char_from_cache(
+                                                    "⏵", 9, color);
+                                            auto get_handler3(string command)
+                                            {
+                                                return ()
+                                                {
+                                                    run_command(gs, command);
+                                                };
+                                            }
+                                            on_click = get_handler3(cmd_data.command.idup());
+                                        }
+
+                                        r = SDL_RenderCopy(gs.renderer, tt2.texture, null, &rect2);
+                                        if (r < 0)
+                                        {
+                                            writefln(
+                                                    "draw_command_line(), 10: Error while render copy: %s", 
+                                                    SDL_GetError().to!string() );
+                                        }
+
+                                        /*REMOVE*/
+                                        color = SDL_Color(0x80,0x00,0x00,0xFF);
+                                        auto tt3 = gs.text_viewer.font.get_char_from_cache(
+                                                "❌", 9, color);
+
+                                        auto rect3 = SDL_Rect();
+                                        rect3.x = rect2.x+rect2.w + 5;
+                                        rect3.y = rect2.y;
+                                        rect3.w = tt3.w;
+                                        rect3.h = tt3.h;
+
+                                        if (gs.mouse_screen_x >= rect3.x && gs.mouse_screen_x <= rect3.x+rect3.w &&
+                                                gs.mouse_screen_y >= rect3.y && gs.mouse_screen_y <= rect3.y+rect3.h)
+                                        {
+                                            color = SDL_Color(0xFF,0x00,0x00,0x80);
+                                            tt3 = gs.text_viewer.font.get_char_from_cache(
+                                                    "❌", 9, color);
+
+                                            auto get_handler4(string cwd, ulong cmd_id)
+                                            {
+                                                return ()
+                                                {
+                                                    delete_command(gs, cwd, cmd_id);
+                                                };
+                                            }
+
+                                            on_click = get_handler4(cmd_key.cwd.idup(), cmd_key.id);
+                                        }
+
+                                        r = SDL_RenderCopy(gs.renderer, tt3.texture, null, &rect3);
+                                        if (r < 0)
+                                        {
+                                            writefln(
+                                                    "draw_command_line(), 11: Error while render copy: %s", 
+                                                    SDL_GetError().to!string() );
+                                        }
+                                    }
+
                                 }
 
                                 if (rect.y <= gs.mouse_screen_y && 

@@ -1822,14 +1822,12 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
 private int
 fork_command(CMDGlobalState cgs, string cwd, string command, Tid tid)
 {
-    writefln("1. Recommit");
     cgs.recommit();
 
 /*db_commands
 cwd, id
     command, start, end, status*/
 
-    writefln("2. get_max_id_of_cwd");
     ulong id = get_max_id_of_cwd(cgs, cwd);
     ulong new_id = id+1;
     if (id > 0)
@@ -1838,7 +1836,6 @@ cwd, id
         //writefln("last_id=%s (%%1000=%s), new_id=%s", id, id%1000, new_id);
     }
 
-    writefln("3. delete_command_out");
     if (command[0] != '*' && command[0] != '+')
     {
         ulong replace_id = find_command_in_cwd(cgs, cwd, command);
@@ -1850,10 +1847,7 @@ cwd, id
         auto res = cgs.db_commands.del(cgs.txn, &key);
     }
 
-    writefln("4. send command id");
     tid.send(thisTid, "command_id", new_id);
-
-    writefln("5. Put command");
 
     cgs.commit();
     cgs.recommit();
@@ -1877,7 +1871,6 @@ cwd, id
         string ks2 = get_key_for_command(command_key(cwd, id));
         key2 = ks2;
 
-        writefln("6 Wait while previous command will be done");
         do
         {
             res = cgs.db_commands.get(cgs.txn, &key2, &data2);
@@ -1930,7 +1923,6 @@ cwd, id
 cwd, command_id, out_id,
     time, stderr/stdout, output*/
 
-    writefln("7 Chdir");
     chdir(cwd);
 
     version(WithoutTTY)
@@ -1945,7 +1937,6 @@ cwd, command_id, out_id,
     }
     else
     {
-    writefln("8 Fork");
         winsize ws;
         ws.ws_row = 25;
         ws.ws_col = 80;
@@ -2002,7 +1993,6 @@ cwd, command_id, out_id,
         waitpid(pid, null, 0);
     }
 
-    writefln("9 Write time of start");
     cmd_data.start = Clock.currTime().stdTime();
     ds = get_data_for_command(cmd_data);
     data = ds;
@@ -2016,7 +2006,6 @@ cwd, command_id, out_id,
     cgs.commit();
     cgs.recommit();
 
-    writefln("10 Set non block mode");
     /*Make file descriptions NON_BLOCKING */
     set_non_block_mode(fdstdout);
     set_non_block_mode(fdstderr);
@@ -2041,7 +2030,6 @@ cwd, command_id, out_id,
     AltMode altmode;
     altmode.master_fd = master;
     bool stdin_closed = false;
-    writefln("12 Start main loop");
     while(!cgs.finish)
     {
         cgs.recommit();
@@ -2064,7 +2052,6 @@ cwd, command_id, out_id,
                     throw new Exception("DB command not written");
                 }
                 cgs.OIT++;
-                writefln("NORMAL EXIT");
                 break;
             }
         }

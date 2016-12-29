@@ -445,6 +445,7 @@ struct Command_Line_State{
     bool ctrl;
     bool shift;
     string command;
+    string complete;
     string edited_command;
     ssize_t pos;
 

@@ -21,8 +21,12 @@ import std.stdio;
 import std.math;
 import std.conv;
 import std.utf;
+import std.file;
 import std.concurrency;
+import std.algorithm.iteration;
+import std.algorithm.sorting;
 import core.sys.posix.signal;
+import core.sys.posix.stdlib;
 
 private void
 fix_bottom_line(GlobalState gs)
@@ -210,6 +214,331 @@ fix_bottom_line(GlobalState gs)
     }
 }
 
+bool is_command_position(GlobalState gs, string command, ssize_t pos)
+{
+    for (ssize_t i = pos-1; i >= -1; i--)
+    {
+        if (i == -1 || command[i] == '&' || command[i] == '|')
+        {
+            return true;
+        }
+        else if (command[i] != ' ' && command[i] != '\t')
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+enum StringStatus{
+    Quote,
+    DblQuote,
+    BackApostrophe,
+    Normal
+}
+
+void uniq(ref string[] strings)
+{
+    for (ssize_t i = 0; i < strings.length-1; i++)
+    {
+        if (strings[i] == strings[i+1])
+        {
+            strings = strings[0..i] ~ strings[i+1..$];
+            i--;
+        }
+    }
+}
+
+ssize_t find_in_sorted(string[] hashstock, string needle, ssize_t pos = 0)
+{
+    if (hashstock.length == 0 )
+        return pos;
+
+    if ( needle == hashstock[$/2] )
+    {
+        return pos+hashstock.length/2;
+    }
+    else if ( needle < hashstock[$/2] )
+    {
+        return find_in_sorted(hashstock[0..$/2], needle, pos);
+    }
+    else
+    {
+        return find_in_sorted(hashstock[$/2+1..$], needle, pos+hashstock.length/2+1);
+    }
+}
+
+string remove_backslashes(string str)
+{
+    bool prevslash;
+    for (ssize_t i = 0; i < str.length; i += str.stride(i))
+    {
+        string chr = str[i..i+str.stride(i)];
+        if (chr == "\\" && !prevslash)
+        {
+            str = str[0..i] ~ str[i+chr.length..$];
+            if (i >= str.length) break;
+            prevslash = true;
+        }
+        if (chr != "\\")
+            prevslash = false;
+    }
+    return str;
+}
+
+string backslashes(string str, StringStatus status)
+{
+    string[] chars_needed_backslashes = [];
+    final switch (status)
+    {
+        case StringStatus.Quote:
+            break;
+        case StringStatus.DblQuote:
+            chars_needed_backslashes = [`"`, "`"];
+            break;
+        case StringStatus.BackApostrophe:
+            chars_needed_backslashes = [`"`, "`", "`", "`"];
+            break;
+        case StringStatus.Normal:
+            chars_needed_backslashes = [`"`, "`", "'", " "];
+            break;
+    }
+
+    for (ssize_t i = 0; i < str.length; i += str.stride(i))
+    {
+        string chr = str[i..i+str.stride(i)];
+        foreach (cnb; chars_needed_backslashes)
+        {
+            if (chr == cnb)
+            {
+                str = str[0..i] ~ `\` ~ str[i..$];
+                i++;
+            }
+        }
+    }
+    return str;
+}
+
+string common_part(string a, string b)
+{
+    string res;
+    for (ssize_t i = 0; i < a.length && i < b.length; i+=a.stride(i))
+    {
+        string chr1 = a[i..i+a.stride(i)];
+        string chr2 = b[i..i+b.stride(i)];
+        if (chr1 == chr2)
+            res ~= chr1;
+        else break;
+    }
+    return res;
+}
+
+string autocomplete(GlobalState gs, string command, bool is_command, StringStatus status)
+{
+    string[] completions;
+    if (is_command && command.indexOf("/") < 0)
+    {
+        string path = getenv("PATH".toStringz()).to!string();
+        string home = getenv("HOME".toStringz()).to!string();
+        auto paths = splitter(path, ":");
+
+        string[] binaries = [];
+        foreach(p; paths)
+        {
+            p = p.replace("~", home);
+            try
+            {
+                foreach (string name; dirEntries(p, SpanMode.shallow))
+                {
+                    binaries ~= name[name.lastIndexOf("/")+1..$];
+                }
+            }
+            catch (FileException exp)
+            {
+            }
+        }
+
+        sort!("a < b")(binaries);
+        uniq(binaries);
+        completions = binaries;
+    }
+    else
+    {
+        string dir;
+        if (command.length >= 1 && command[0] == '/')
+        {
+            dir = command[0..command.lastIndexOf("/")+1];
+        }
+        else if (command.length >= 2 && command[0..2] == "./" || 
+                command.length >= 3 && command[0..3] == "../")
+        {
+            dir = gs.full_current_path ~ command[0..command.lastIndexOf("/")+1];
+        }
+        else
+        {
+            dir = gs.full_current_path;
+        }
+
+        string[] files = [];
+        foreach (string name; dirEntries(dir, SpanMode.shallow))
+        {
+            files ~= name[name.lastIndexOf("/")+1..$];
+        }
+
+        command = command[command.lastIndexOf("/")+1..$];
+
+        sort!("a < b")(files);
+        completions = files;
+    }
+
+    final switch (status)
+    {
+        case StringStatus.Quote:
+            break;
+        case StringStatus.DblQuote:
+            command = remove_backslashes(command);
+            break;
+        case StringStatus.BackApostrophe:
+            command = remove_backslashes(command);
+            break;
+        case StringStatus.Normal:
+            command = remove_backslashes(command);
+            break;
+    }
+
+    string[] next_chars = [];
+    ssize_t pos = find_in_sorted(completions, command);
+    ssize_t i;
+    for (i=pos; i < completions.length; i++)
+    {
+        if ( completions[i].startsWith(command) )
+        {
+            if ( completions[i].length <= command.length )
+            {
+                next_chars ~= "✔";
+                continue;
+            }
+            if (next_chars.length == 0 || next_chars[$-1] != completions[i][command.length..command.length+completions[i].stride(command.length)])
+                next_chars ~= completions[i][command.length..command.length+completions[i].stride(command.length)];
+        }
+        else
+            break;
+    }
+
+    if (i == pos)
+        return "";
+    else if (i == pos+1)
+        return "1"~completions[pos][command.length..$].backslashes(status);
+    else if (next_chars.length == 1)
+    {
+        string common = completions[pos];
+        for (ssize_t j = pos+1; j < i; j++)
+            common = common_part(common, completions[j]);
+        return "1"~common[command.length..$].backslashes(status);
+    }
+    else
+    {
+        string result = "";
+        foreach (chr; next_chars)
+        {
+            result ~= chr ~ " ";
+        }
+        return "2"~result;
+    }
+}
+
+string autocomplete(GlobalState gs, string command)
+{
+    static string prev_command;
+    static string prev_result;
+    if (prev_command == command)
+        return prev_result;
+
+    prev_command = command;
+
+    if (command.length > 0 && (command[0] == '+' || command[0] == '*'))
+        command = command[1..$];
+
+    ssize_t dbl_quotes = command.count("\"");
+    ssize_t esc_dbl_quotes = command.count("\\\"");
+    dbl_quotes -= esc_dbl_quotes;
+
+    ssize_t back_apostrophes = command.count("`");
+    ssize_t esc_back_apostrophes = command.count("\\`");
+    back_apostrophes -= esc_back_apostrophes;
+
+    ssize_t quotes = command.count("'");
+
+    ssize_t quote;
+    if (quotes%2 == 1)
+    {
+        quote = command.lastIndexOf("'");
+    }
+
+    ssize_t dbl_quote;
+    if (dbl_quotes%2 == 1)
+    {
+        dbl_quote = command.lastIndexOf("\"");
+        while (command[dbl_quote-1] == '\\')
+        {
+            dbl_quote = command[0..dbl_quote].lastIndexOf("`");
+        }
+    }
+
+    ssize_t back_apostrophe;
+    if (back_apostrophes%2 == 1)
+    {
+        back_apostrophe = command.lastIndexOf("`");
+        while (command[back_apostrophe-1] == '\\')
+        {
+            back_apostrophe = command[0..back_apostrophe].lastIndexOf("`");
+        }
+    }
+
+    bool is_command;
+    StringStatus string_status;
+    ssize_t pos;
+    if (quote > dbl_quote && quote > back_apostrophe)
+    {
+        is_command = is_command_position(gs, command, quote);
+        pos = quote+1;
+        string_status = StringStatus.Quote;
+    }
+    else if (dbl_quote > quote && dbl_quote > back_apostrophe)
+    {
+        is_command = is_command_position(gs, command, dbl_quote);
+        pos = dbl_quote+1;
+        string_status = StringStatus.DblQuote;
+    }
+    else 
+    {
+        if (back_apostrophe > quote && back_apostrophe > dbl_quote)
+        {
+            command = command[dbl_quote+1..$];
+        }
+
+        ssize_t space = command.lastIndexOf(" ");
+        while ( space > 0 && command[space-1] == '\\')
+        {
+            space = command[0..space].lastIndexOf(" ");
+        }
+        is_command = is_command_position(gs, command, space);
+
+        pos = space+1;
+        if (back_apostrophe > quote && back_apostrophe > dbl_quote)
+        {
+            string_status = StringStatus.BackApostrophe;
+        }
+        else
+        {
+            string_status = StringStatus.Normal;
+        }
+    }
+
+    prev_result = autocomplete(gs, command[pos..$], is_command, string_status);
+    return prev_result;
+}
+
 void
 draw_command_line(GlobalState gs)
 {
@@ -269,6 +598,7 @@ redraw:
                     /* Try to find bottom command in commands history */
                     bool first_cmd_or_out = true;
 
+                    //writefln("nav_skip_cmd_id=%s", nav_skip_cmd_id);
                     Dbt key, data;
                     ulong id = find_prev_command(cursor, cwd, nav_skip_cmd_id,
                             key, data);
@@ -288,11 +618,13 @@ redraw:
                             parse_key_for_command(key_string, cmd_key);
                             if (cwd != cmd_key.cwd)
                             {
+                    writefln("cwd == %s != %s", cwd, cmd_key.cwd);
                                 id = 0;
                                 break;
                             }
                             else
                             {
+                    //writefln("cmd_id=%s found", cmd_key.id);
                                 if (fontsize >= 5)
                                 {
                                     /* Try to find last output for command */
@@ -864,12 +1196,32 @@ redraw:
                             to!string(TTF_GetError()));
                 }
 
-                auto tt = gs.text_viewer.font.get_line_from_cache(gs.command_line.command, 
+                auto tt = gs.text_viewer.font.get_line_from_cache(command, 
                         9, gs.screen.w-80-ptt.w, line_height, SDL_Color(0xFF, 0xFF, 0xFF, 0xFF));
                 if (!tt && !tt.texture)
                 {
                     throw new Exception("Can't create text_surface: "~
                             to!string(TTF_GetError()));
+                }
+
+                complete = autocomplete(gs, command[0..pos]);
+
+                Texture_Tick *ctt;
+                if (complete.length > 1)
+                {
+                    int linewidth = gs.screen.w-80-ptt.w-tt.w;
+                    if (complete[0] == '2')
+                    {
+                        linewidth = gs.screen.w-80;
+                    }
+
+                    ctt = gs.text_viewer.font.get_line_from_cache(complete[1..$], 
+                            9, linewidth, line_height, SDL_Color(0xFF, 0x96, 0x00, 0xFF));
+                    if (!ctt && !ctt.texture)
+                    {
+                        throw new Exception("Can't create text_surface: "~
+                                to!string(TTF_GetError()));
+                    }
                 }
 
                 auto lines = tt.h / line_height;
@@ -882,6 +1234,12 @@ redraw:
                 rect.y = cast(int)y_off;
                 rect.w = gs.screen.w - 32*2;
                 rect.h = cast(int)(line_height*lines + 8);
+
+                if (complete.length > 1 && complete[0] == '2')
+                {
+                    rect.y -= line_height;
+                    rect.h += line_height;
+                }
 
                 r = SDL_RenderCopy(gs.renderer, gs.texture_black, null, &rect);
                 if (r < 0)
@@ -907,7 +1265,7 @@ redraw:
                         SDL_GetError().to!string() );
                 }
 
-                /* EN: Render text to screeb
+                /* EN: Render text to screen
                    RU: Рендерим текст на экран */
                 rect = SDL_Rect();
                 rect.x = 40+ptt.w;
@@ -923,34 +1281,63 @@ redraw:
                         SDL_GetError().to!string() );
                 }
 
-                with (gs.command_line)
+                /* EN: Render autocomplete to screen
+                   RU: Рендерим автодополнение на экран */
+                if (complete.length > 1)
                 {
-                    //if (pos >= tt.chars.length) pos = tt.chars.length - 1;
-                    rect = tt.chars[pos];
-                    rect.x += 40+ptt.w;
-                    rect.y += cast(int)(y_off + 4 + line_height*i);
-                    string chr = " ";
-                    if (pos < command.length)
-                        chr = command[pos..pos+command.stride(pos)];
-                    if (chr == "\n") chr = " ";
-
-                    r = SDL_RenderCopy(gs.renderer, gs.texture_cursor, null, &rect);
-                    if (r < 0)
+                    rect = SDL_Rect();
+                    if (complete[0] == '1' && pos == command.length)
                     {
-                        writefln( "draw_command_line(), 11: Error while render copy: %s",
-                                SDL_GetError().to!string() );
+                        rect.x = 40+ptt.w+tt.w-tt.chars[$-1].w;
+                        rect.y = cast(int)(y_off + 4 + line_height*i);
+                        rect.w = ctt.w;
+                        rect.h = ctt.h;
+                    }
+                    else if (complete[0] == '2' || pos < command.length)
+                    {
+                        rect.x = 40;
+                        rect.y = cast(int)(y_off + 4 + line_height*(i-1));
+                        rect.w = ctt.w;
+                        rect.h = ctt.h;
                     }
 
-                    auto st = gs.text_viewer.font.get_char_from_cache(chr, 9, SDL_Color(0x00, 0x00, 0x20, 0xFF));
-                    if (!st) return;
-
-                    r = SDL_RenderCopy(gs.renderer, st.texture, null, &rect);
+                    r = SDL_RenderCopy(gs.renderer, ctt.texture, null, &rect);
                     if (r < 0)
                     {
                         writefln(
-                            "draw_command_line(), 12: Error while render copy: %s", 
+                            "draw_command_line(), 10: Error while render copy: %s", 
                             SDL_GetError().to!string() );
                     }
+                }
+
+                /* Render cursor */
+                //if (pos >= tt.chars.length) pos = tt.chars.length - 1;
+                rect = tt.chars[pos];
+                rect.x += 40+ptt.w;
+                rect.y += cast(int)(y_off + 4 + line_height*i);
+                string chr = " ";
+                if (pos < command.length)
+                    chr = command[pos..pos+command.stride(pos)];
+                else if (complete.length > 1 && complete[0] == '1')
+                    chr = complete[1..1+complete.stride(1)];
+                if (chr == "\n") chr = " ";
+
+                r = SDL_RenderCopy(gs.renderer, gs.texture_cursor, null, &rect);
+                if (r < 0)
+                {
+                    writefln( "draw_command_line(), 11: Error while render copy: %s",
+                            SDL_GetError().to!string() );
+                }
+
+                auto st = gs.text_viewer.font.get_char_from_cache(chr, 9, SDL_Color(0x00, 0x00, 0x20, 0xFF));
+                if (!st) return;
+
+                r = SDL_RenderCopy(gs.renderer, st.texture, null, &rect);
+                if (r < 0)
+                {
+                    writefln(
+                        "draw_command_line(), 12: Error while render copy: %s", 
+                        SDL_GetError().to!string() );
                 }
             }
 

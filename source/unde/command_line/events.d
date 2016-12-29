@@ -211,6 +211,11 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             {
                 if (enter)
                 {
+                    if (complete.length > 1 && complete[0] == '1')
+                    {
+                        command = command[0..pos] ~ complete[1..$] ~ command[pos..$];
+                        pos += complete[1..$].length;
+                    }
                 }
                 else if (command_in_focus_id > 0)
                 {

@@ -23,7 +23,8 @@ package string
 get_key_for_command(command_key k)
 {
     string key_string;
-    key_string = k.cwd;
+    key_string ~= nativeToBigEndian(cast(ushort)k.cwd.length);
+    key_string ~= k.cwd;
     key_string ~= nativeToBigEndian(k.id);
     return key_string;
 }
@@ -33,7 +34,10 @@ parse_key_for_command(in string key_string, out command_key k)
 {
     ubyte[k.id.sizeof] id = (cast(ubyte[])key_string)[$-k.id.sizeof..$]; 
     k.id = bigEndianToNative!ulong(id);
-    k.cwd = key_string[0..$-k.id.sizeof];
+    k.cwd = key_string[ushort.sizeof..$-k.id.sizeof];
+    ubyte[ushort.sizeof] cwd_len_bytes = (cast(ubyte[])key_string)[0..ushort.sizeof]; 
+    ushort cwd_len = bigEndianToNative!ushort(cwd_len_bytes);
+    assert(k.cwd.length == cwd_len);
 }
 
 unittest

@@ -95,7 +95,7 @@ enum OutPipe
     STDERR
 }
 
-enum CommansOutVersion
+enum CommandsOutVersion
 {
     Simple,
     Screen
@@ -103,7 +103,7 @@ enum CommansOutVersion
 
 struct command_out_data
 {
-    CommansOutVersion vers;
+    CommandsOutVersion vers;
     ulong time;
     OutPipe pipe;
     size_t pos;
@@ -142,7 +142,7 @@ struct command_out_data
     }
     this(ulong time, OutPipe pipe, size_t pos, int cols, int rows, dchar[] screen, ushort[] scr_attrs)
     {
-        this.vers = CommansOutVersion.Screen;
+        this.vers = CommandsOutVersion.Screen;
         this.time = time;
         this.pipe = pipe;
         this.pos = pos;
@@ -194,14 +194,14 @@ get_data_for_command_out(command_out_data d)
     data_string ~= (cast(char*)&d.pos)[0..d.pos.sizeof];
     final switch (d.vers)
     {
-        case CommansOutVersion.Simple:
+        case CommandsOutVersion.Simple:
             data_string ~= (cast(char*)&d.len)[0..d.len.sizeof];
             assert(d.attrs.length == d.len);
             data_string ~= (cast(char*)d.attrs.ptr)[0..ushort.sizeof*d.len];
             data_string ~= d.output;
             break;
 
-        case CommansOutVersion.Screen:
+        case CommandsOutVersion.Screen:
             data_string ~= (cast(char*)&d.cols)[0..d.cols.sizeof];
             data_string ~= (cast(char*)&d.rows)[0..d.rows.sizeof];
             assert(d.cols*d.rows == d.screen.length);
@@ -217,7 +217,7 @@ get_data_for_command_out(command_out_data d)
 package void
 parse_data_for_command_out(string data_string, out command_out_data d)
 {
-    d.vers = *cast(CommansOutVersion*)data_string[0..d.vers.sizeof];
+    d.vers = *cast(CommandsOutVersion*)data_string[0..d.vers.sizeof];
     data_string = data_string[d.vers.sizeof..$];
     d.time = *cast(ulong*)data_string[0..d.time.sizeof];
     data_string = data_string[d.time.sizeof..$];
@@ -228,14 +228,14 @@ parse_data_for_command_out(string data_string, out command_out_data d)
 
     final switch (d.vers)
     {
-        case CommansOutVersion.Simple:
+        case CommandsOutVersion.Simple:
             d.len = *cast(int*)data_string[0..d.len.sizeof];
             data_string = data_string[d.len.sizeof..$];
             d.attrs = (cast(ushort*)data_string.ptr)[0..d.len];
             d.output = data_string[ushort.sizeof*d.len..$];
             break;
 
-        case CommansOutVersion.Screen:
+        case CommandsOutVersion.Screen:
             d.cols = *cast(int*)data_string[0..d.cols.sizeof];
             data_string = data_string[d.cols.sizeof..$];
             d.rows = *cast(int*)data_string[0..d.rows.sizeof];
@@ -251,7 +251,7 @@ parse_data_for_command_out(string data_string, out command_out_data d)
 unittest
 {
     command_out_data cmd_data;
-    cmd_data.vers = CommansOutVersion.Simple;
+    cmd_data.vers = CommandsOutVersion.Simple;
     cmd_data.time = 0xABCDEF0123456789;
     cmd_data.pipe = OutPipe.STDERR;
     cmd_data.pos = 3458;
@@ -271,7 +271,7 @@ unittest
             format("%s = %s", cmd_data.output, cmd_data2.output));
 
     cmd_data = command_out_data();
-    cmd_data.vers = CommansOutVersion.Screen;
+    cmd_data.vers = CommandsOutVersion.Screen;
     cmd_data.time = 0xABCDEF0123456789;
     cmd_data.pipe = OutPipe.STDERR;
     cmd_data.pos = 3458;

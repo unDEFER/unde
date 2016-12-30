@@ -58,6 +58,7 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
                 writefln("Command line open");
                 result = CommandLineEventHandlerResult.Block;
                 gs.command_line.enter = true;
+                gs.ctrl=false;
             }
             break;
         case SDL_SCANCODE_ESCAPE:
@@ -642,22 +643,27 @@ process_event(GlobalState gs, ref SDL_Event event)
         case SDL_MOUSEWHEEL:
             with (gs.command_line)
             {
-                auto y = event.wheel.y;
-                while (y > 0)
+                if (terminal)
                 {
-                    fontsize++;
-                    y--;
-                }
-                while (y < 0)
-                {
-                    fontsize--;
-                    y++;
-                }
+                    auto y = event.wheel.y;
+                    while (y > 0)
+                    {
+                        fontsize++;
+                        y--;
+                    }
+                    while (y < 0)
+                    {
+                        fontsize--;
+                        y++;
+                    }
 
-                font_changed = true;
-                if (fontsize < 4) fontsize = 4;
-                if (fontsize > 15) fontsize = 15;
-                last_redraw = 0;
+                    font_changed = true;
+                    if (fontsize < 4) fontsize = 4;
+                    if (fontsize > 15) fontsize = 15;
+                    last_redraw = 0;
+
+                    update_winsize(gs);
+                }
             }
             break;
             

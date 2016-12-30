@@ -101,15 +101,33 @@ class Font
             SDL_Surface *surface;
             if (glyph_index > 0)
             {
-                surface = TTF_RenderUTF8_Blended(
-                    font[f][size], chr.toStringz(),
-                    color );
+                if (size < 9)
+                {
+                    surface = TTF_RenderUTF8_Solid(
+                            font[f][size], chr.toStringz(),
+                            color );
+                }
+                else
+                {
+                    surface = TTF_RenderUTF8_Blended(
+                            font[f][size], chr.toStringz(),
+                            color );
+                }
             }
             else
             {
-                surface = TTF_RenderUTF8_Blended(
-                    font[4][size], chr.toStringz(),
-                    color );
+                if (size < 9)
+                {
+                    surface = TTF_RenderUTF8_Solid(
+                            font[4][size], chr.toStringz(),
+                            color );
+                }
+                else
+                {
+                    surface = TTF_RenderUTF8_Blended(
+                        font[4][size], chr.toStringz(),
+                        color );
+                }
             }
 
             auto texture =
@@ -473,7 +491,7 @@ class Font
                             real_color = SDL_Color(0xFF, 0xFF, 0x30, 0xFF);
                             break;
                         case Attr.Blue:
-                            real_color = SDL_Color(0x00, 0x00, 0xFF, 0xFF);
+                            real_color = SDL_Color(0x80, 0x80, 0xFF, 0xFF);
                             break;
                         case Attr.Magenta:
                             real_color = SDL_Color(0xFF, 0x00, 0xFF, 0xFF);
@@ -677,7 +695,7 @@ class Font
                     back_color = SDL_Color(0x00, 0xFF, 0x00, 0xFF);
                     break;
                 case Attr.Brown:
-                    back_color = SDL_Color(0xFF, 0xFF, 0x30, 0xFF);
+                    back_color = SDL_Color(0x80, 0x80, 0x00, 0xFF);
                     break;
                 case Attr.Blue:
                     back_color = SDL_Color(0x00, 0x00, 0xFF, 0xFF);
@@ -686,7 +704,7 @@ class Font
                     back_color = SDL_Color(0xFF, 0x00, 0xFF, 0xFF);
                     break;
                 case Attr.Cyan:
-                    back_color = SDL_Color(0x00, 0xFF, 0xFF, 0xFF);
+                    back_color = SDL_Color(0x00, 0x80, 0x80, 0xFF);
                     break;
                 case Attr.White:
                     back_color = SDL_Color(0xFF, 0xFF, 0xFF, 0xFF);
@@ -701,7 +719,7 @@ class Font
                     back_color = SDL_Color(0x00, 0xFF, 0x00, 0xFF);
                     break;
                 case 8+Attr.Brown:
-                    back_color = SDL_Color(0xFF, 0xFF, 0x30, 0xFF);
+                    back_color = SDL_Color(0x80, 0x80, 0x00, 0xFF);
                     break;
                 case 8+Attr.Blue:
                     back_color = SDL_Color(0x00, 0x00, 0xFF, 0xFF);

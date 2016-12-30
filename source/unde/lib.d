@@ -534,3 +534,58 @@ myWalkLength(char[] str)
         n++;
     return n;
 }
+
+// TODO Move to unde.file_manager.lib
+import unde.viewers.image_viewer.lib;
+import unde.viewers.text_viewer.lib;
+import unde.path_mnt;
+void
+openFile(GlobalState gs, PathMnt path)
+{
+    string mime_type = mime(path);
+    if (mime_type == "inode/directory" ||
+            mime_type == "error/none")
+    {
+        // Do nothing
+    }
+    else if (mime_type.startsWith("image/"))
+    {
+        image_viewer(gs, path);
+    }
+    else if (mime_type.startsWith("text/"))
+    {
+        text_viewer(gs, path);
+    }
+    else
+    {
+        string msg = format("No viewer for '%s' mime type", mime_type);
+        gs.messages ~= ConsoleMessage(
+                SDL_Color(0xFF, 0x00, 0x00, 0xFF),
+                msg,
+                SDL_GetTicks()
+                );
+        writeln(msg);
+    }
+}
+
+// TODO Move to unde.file_manager.lib
+void
+openFileByMime(GlobalState gs, string path)
+{
+    string mime_type = mime(path);
+    if ( mime_type in gs.mime_applications )
+    {
+        auto pid = spawnProcess([gs.mime_applications[mime_type], path]);
+        gs.pids ~= pid;
+    }
+    else
+    {
+        string msg = format("No mime application for '%s' mime type in ~/.unde/mime", mime_type);
+        gs.messages ~= ConsoleMessage(
+                SDL_Color(0xFF, 0x00, 0x00, 0xFF),
+                msg,
+                SDL_GetTicks()
+                );
+        writeln(msg);
+    }
+}

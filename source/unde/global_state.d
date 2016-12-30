@@ -7,11 +7,17 @@ import unde.path_mnt;
 import unde.font;
 import unde.marks;
 import unde.slash;
+import unde.command_line.lib;
 
 import std.format;
 import std.conv;
 import std.stdio;
 import core.stdc.stdlib;
+import core.stdc.string;
+import core.stdc.errno;
+import core.thread;
+import core.sys.posix.unistd: fork;
+import core.sys.posix.sys.ioctl;
 import std.string;
 import std.concurrency;
 import std.datetime;
@@ -239,6 +245,7 @@ recover:
 
 mixin template recommit()
 {
+    bool txn_on = true;
     DbTxn txn;
     int OIT; // operations in transaction
     long beginned;
@@ -246,11 +253,13 @@ mixin template recommit()
 
     bool is_time_to_recommit()
     {
+        if (!txn_on) return false;
         return OIT > 100 || OIT > 0 && (Clock.currTime() - txn_started) > 200.msecs;
     }
 
     void recommit()
     {
+        if (!txn_on) return;
         if (OIT > 100 || OIT > 0 && (Clock.currTime() - txn_started) > 200.msecs)
         {
             commit();
@@ -264,6 +273,7 @@ mixin template recommit()
 
     void commit()
     {
+        if (!txn_on) return;
         //writefln("Tid=%s, OIT=%d, time=%s", thisTid, OIT, Clock.currTime() - txn_started);
         if (txn !is null)
         {
@@ -479,6 +489,8 @@ struct Command_Line_State{
     int moved_while_click;
 
     void delegate() on_click;
+
+    winsize ws;
 }
 
 class GlobalState
@@ -487,6 +499,9 @@ class GlobalState
     SDL_Renderer* renderer;
     SDL_Texture* surf_texture;
     bool finish = false;
+    string start_cwd;
+    string[] args;
+    bool restart;
     uint frame; //Frame which renders
     uint time; //Time from start of program in ms
     immutable msize = 128;
@@ -852,6 +867,7 @@ class GlobalState
 
     this(bool force_recover = false)
     {
+        txn_on = false;
         msg_stamp = Clock.currTime().toUnixTime();
         initBDB(force_recover);
         initAllSDLLibs();
@@ -860,12 +876,29 @@ class GlobalState
         loadMimeApplications();
         .lsblk(this.lsblk);
         getCurrentDesktop();
+        update_winsize(this);
     }
 
     ~this()
     {
         deInitBDB();
         deInitAllSDLLibs();
+        if (restart)
+        {
+            writefln("Restart");
+            int r = fork();
+            if (r < 0)
+            {
+                throw new Exception("fork() error: " ~ fromStringz(strerror(errno)).idup());
+            }
+            else if (r == 0)
+            {
+                Thread.sleep(2.seconds);
+                chdir(start_cwd);
+                execv(args[0], args);
+                assert(0);
+            }
+        }
     }
 }
 

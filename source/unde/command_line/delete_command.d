@@ -9,7 +9,8 @@ import std.stdio;
 import berkeleydb.all;
 
 package void
-delete_command_out(CMDGlobalState cgs, string cwd, ulong cmd_id)
+delete_command_out(T)(T cgs, string cwd, ulong cmd_id)
+if (is (T == CMDGlobalState) || is (T == GlobalState))
 {
     cgs.commit();
     cgs.recommit();
@@ -71,15 +72,26 @@ begin:
 private int
 delete_cmd(CMDGlobalState cgs, string cwd, ulong cmd_id)
 {
-    cgs.recommit();
-
     int result;
 
     delete_command_out(cgs, cwd, cmd_id);
 
-    string ks = get_key_for_command(command_key(cwd, cmd_id));
-    Dbt key = ks;
-    auto res = cgs.db_commands.del(cgs.txn, &key);
+    cgs.commit();
+    cgs.recommit();
+begin:
+    try
+    {
+        string ks = get_key_for_command(command_key(cwd, cmd_id));
+        Dbt key = ks;
+        auto res = cgs.db_commands.del(cgs.txn, &key);
+    }
+    catch (DbDeadlockException exp)
+    {
+        writefln("Oops deadlock, retry");
+        cgs.abort();
+        cgs.recommit();
+        goto begin;
+    }
 
     return result;
 }

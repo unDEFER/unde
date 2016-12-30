@@ -24,7 +24,7 @@ import std.string;
 import std.conv;
 
 
-private DRect
+public DRect
 get_rectsize_for_mark(GlobalState gs, PathMnt path, string full_path,
         DRect apply_rect, SortType sort = SortType.ByName)
 {
@@ -356,8 +356,10 @@ void go_mark(GlobalState gs, string m)
     {
         Mark mark = data.to!(Mark);
         string path = from_char_array(mark.path);
-	if (path == "")
-		goto create_desktop;
+
+        if (path == "")
+            goto create_desktop;
+
         string uuid = path[0..path.indexOf("\0")];
 
         string full_path = null;

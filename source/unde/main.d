@@ -8,6 +8,7 @@ import unde.slash;
 import derelict.sdl2.sdl;
 
 import std.stdio;
+import std.file;
 import core.stdc.stdlib;
 
 import core.sys.posix.signal;
@@ -22,6 +23,8 @@ int main(string[] args)
     if (args.length > 1)
        force_recover = (args[1] == "--force_recover");
     GlobalState gs = new GlobalState(force_recover);
+    gs.args = args;
+    gs.start_cwd = getcwd();
     version(Posix)
     {
     sigset(SIGINT, &mybye);

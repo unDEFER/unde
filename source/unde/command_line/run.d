@@ -6,6 +6,7 @@ import unde.path_mnt;
 import unde.slash;
 import unde.command_line.db;
 import unde.font;
+import unde.lib;
 
 import std.stdio;
 import std.conv;
@@ -15,6 +16,7 @@ import berkeleydb.all;
 import std.stdint;
 import core.stdc.stdlib;
 import std.string;
+import std.path;
 import std.algorithm.sorting;
 import std.algorithm.searching;
 import std.algorithm.comparison;
@@ -38,7 +40,11 @@ import core.sys.posix.sys.ioctl;
 import core.sys.posix.termios;
 import core.sys.posix.sys.wait;
 
+import derelict.sdl2.sdl;
+
 import unde.command_line.delete_command;
+import unde.command_line.lib;
+import unde.marks;
 import unde.lib;
 
 import std.file;
@@ -66,6 +72,7 @@ struct WorkMode
     ssize_t attrs_r;
     ulong out_id1;
     ssize_t saved_buf_r;
+    ushort saved_attr;
     char[4096] prebuf;
     ssize_t prebuf_r;
 }
@@ -83,8 +90,20 @@ struct AltMode
     string control_input;
     ssize_t scroll_from;
     ssize_t scroll_to;
-    int master_fd;
     bool insert_mode;
+    bool cursor_mode;
+
+    void reset()
+    {
+        y = 0;
+        x = 0;
+        alt_out_id1 = 0;
+        alt_cur_attr = Attr.Black<<4 | Attr.White;
+        control_input = "";
+        scroll_from = 0;
+        scroll_to = rows;
+        insert_mode = false;
+    }
 }
 
 private void
@@ -102,7 +121,8 @@ set_non_block_mode(int fd)
 
 
 private ulong
-get_max_id_of_cwd(CMDGlobalState cgs, string cwd)
+get_max_id_of_cwd(T)(T cgs, string cwd)
+if (is (T == CMDGlobalState) || is (T == GlobalState))
 {
     Dbc cursor = cgs.db_commands.cursor(cgs.txn, 0);
     scope(exit) cursor.close();
@@ -129,7 +149,8 @@ get_max_id_of_cwd(CMDGlobalState cgs, string cwd)
 }
 
 private ulong
-find_command_in_cwd(CMDGlobalState cgs, string cwd, string command)
+find_command_in_cwd(T)(T cgs, string cwd, string command)
+if (is (T == CMDGlobalState) || is (T == GlobalState))
 {
     Dbc cursor = cgs.db_commands.cursor(cgs.txn, 0);
     scope(exit) cursor.close();
@@ -199,7 +220,6 @@ process_escape_sequences(CMDGlobalState cgs,
         {
             //Stat processing: 570 ms, 203 μs of 3 s
             //assert(buf[0..buf_r].walkLength == attrs_r, format("walkLength=%d, attrs_r=%d", buf[0..buf_r].walkLength, attrs_r));
-
             cur_chr_stride = prebuf.mystride(i);
 
             char[] chr;
@@ -250,7 +270,9 @@ process_escape_sequences(CMDGlobalState cgs,
                                         max_r = buf_r+chrlen;
                                     }
                                     if (max_r+chr.length-chrlen >= buf.length) break loop;
-                                    std.algorithm.mutation.copy(buf[buf_r+chrlen..max_r] , buf[buf_r+chr.length..max_r+chr.length-chrlen]);
+                                    for (ssize_t j = max_r-1; j >= buf_r+chrlen; j--)
+                                        buf[j + chr.length-chrlen] = buf[j];
+                                    //std.algorithm.mutation.copy(buf[buf_r+chrlen..max_r] , buf[buf_r+chr.length..max_r+chr.length-chrlen]);
                                     max_r += chr.length-chrlen;
                                 }
 
@@ -476,8 +498,42 @@ process_escape_sequences(CMDGlobalState cgs,
                                 {
                                     if (prebuf[i] == '\n')
                                     {
-                                        buf_r = max_r;
-                                        attrs_r = attrs.length;
+                                        if (altmode.scroll_to < altmode.rows)
+                                        {
+                                            if (buf_r > buf.length) buf_r = buf.length;
+                                            ssize_t newline = buf[0..buf_r].lastIndexOf("\n");
+                                            if (newline < 0) newline = 0;
+                                            else newline++;
+                                            ssize_t wl = buf[newline..buf_r].myWalkLength();
+
+                                            writefln("\\n wl = %d", wl);
+                                            while ( wl%altmode.cols != altmode.cols-1 )
+                                            {
+                                                if (buf_r < buf.length)
+                                                {
+                                                    buf_r += buf.mystride(buf_r);
+                                                    if (buf[buf_r] == char.init) buf[buf_r] = ' ';
+                                                    attrs_r++;
+                                                }
+                                                wl++;
+                                            }
+                                            if (buf_r > max_r) max_r = buf_r;
+
+                                            if (max_r > buf_r+1)
+                                            {
+                                                std.algorithm.mutation.copy(buf[buf_r+1..max_r], buf[buf_r+1+altmode.cols..max_r+altmode.cols]);
+                                                attrs.length += altmode.cols;
+                                                std.algorithm.mutation.copy(attrs[attrs_r+1..$-altmode.cols], attrs[attrs_r+1+altmode.cols..$]);
+                                                buf[buf_r+1..max_r] = ' ';
+                                                attrs[attrs_r+1..$-altmode.cols] = Attr.Black<<4 | Attr.White;
+                                                max_r += altmode.cols;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            buf_r = max_r;
+                                            attrs_r = attrs.length;
+                                        }
                                     }
                                     if (max_r >= buf.length || buf_r >= buf.length) break loop;
                                     auto chrlen = buf.mystride(buf_r);
@@ -613,6 +669,7 @@ process_escape_sequences(CMDGlobalState cgs,
                             {
                                 case Mode.Working:
                                     saved_buf_r = buf_r;
+                                    saved_attr = cur_attr;
                                     break;
 
                                 case Mode.Alternate:
@@ -628,6 +685,10 @@ process_escape_sequences(CMDGlobalState cgs,
                             {
                                 case Mode.Working:
                                     buf_r = saved_buf_r;
+                                    while ( (buf[buf_r] & 0b1100_0000) == 0b1000_0000 )
+                                        buf_r--;
+                                    attrs_r = buf[0..buf_r].myWalkLength();
+                                    cur_attr = saved_attr;
                                     break;
 
                                 case Mode.Alternate:
@@ -976,9 +1037,49 @@ process_escape_sequences(CMDGlobalState cgs,
                             if (text > "")
                                 numbers ~= to!int(text);
                             while (numbers.length < 2) numbers ~= 1;
+
+                            if (numbers[0] < 1) numbers[0]=1;
+                            if (numbers[0] > altmode.rows) numbers[0]=altmode.rows;
+                            if (numbers[1] < 1) numbers[1]=1;
+                            if (numbers[1] > altmode.cols) numbers[1]=altmode.cols;
                             final switch(mode)
                             {
                                 case Mode.Working:
+                                    if (buf_r > buf.length) buf_r = buf.length;
+                                    ssize_t newline = buf[0..buf_r].lastIndexOf("\n");
+                                    if (newline < 0) newline = 0;
+                                    else newline++;
+                                    ssize_t wl = buf[newline..buf_r].myWalkLength();
+
+                                    writefln("[H wl = %d", wl);
+                                    if (numbers[0] > altmode.scroll_to)
+                                    {
+                                        do
+                                        {
+                                            if (buf_r < buf.length)
+                                            {
+                                                buf_r += buf.mystride(buf_r);
+                                                if (buf[buf_r] == char.init) buf[buf_r] = ' ';
+                                                attrs_r++;
+                                            }
+                                            wl++;
+                                        }
+                                        while ( wl%altmode.cols != numbers[1]-1 );
+                                    }
+                                    else
+                                    {
+                                        while ( wl%altmode.cols != numbers[1]-1 )
+                                        {
+                                            if (buf_r > 0)
+                                            {
+                                                buf_r -= buf.mystrideBack(buf_r);
+                                                attrs_r--;
+                                            }
+                                            wl--;
+                                        }
+                                    }
+                                    if (buf_r > max_r) max_r = buf_r;
+                                    attrs_r = buf[0..buf_r].myWalkLength();
                                     break;
 
                                 case Mode.Alternate:
@@ -1008,6 +1109,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                 case Mode.Working:
                                     if (max_r > buf.length) max_r = buf.length;
                                     buf[buf_r..max_r] = ' ';
+                                    attrs[attrs_r..$] = Attr.Black<<4 | Attr.White;
                                     break;
                                 case Mode.Alternate:
                                     with(altmode)
@@ -1217,8 +1319,7 @@ process_escape_sequences(CMDGlobalState cgs,
                             break;
                         case 'f':
                             /*Move cursor to the indicated row, column.*/
-                            state = StateEscape.WaitEscape;
-                            break;
+                            goto case 'H';
                         case 'g':
                             /*Without parameter: clear tab stop at current position.*/
                             /* ESC [ 3 g: delete all tab stops. */
@@ -1227,6 +1328,7 @@ process_escape_sequences(CMDGlobalState cgs,
                         case 'h':
                             /*Set Mode.*/
                             /*More info on modes: https://conemu.github.io/blog/2015/11/09/Build-151109.html*/
+                            /*http://www.vt100.net/docs/vt510-rm/chapter4.html*/
                             if (text > "")
                                 numbers ~= to!int(text);
 
@@ -1234,6 +1336,10 @@ process_escape_sequences(CMDGlobalState cgs,
                             {
                                 switch(numbers[0])
                                 {
+                                    case 1:
+                                        /*Turn on application cursor mode*/
+                                        altmode.cursor_mode = true;
+                                        break;
                                     case 4:
                                         /*Turn on insert mode*/
                                         altmode.insert_mode = true;
@@ -1247,25 +1353,12 @@ process_escape_sequences(CMDGlobalState cgs,
                                     case 1049:
                                         /* Save cursor position and activate xterm alternative buffer (no backscroll) */
                                         mode = Mode.Alternate;
-                                        altmode = AltMode();
+                                        altmode.reset();
                                         altmode.buffer.length = altmode.cols*altmode.rows;
                                         altmode.alt_attrs.length = altmode.cols*altmode.rows;
                                         altmode.buffer[0..$] = " "d[0];
                                         altmode.scroll_from = 0;
                                         altmode.scroll_to = altmode.rows;
-
-                                        /*winsize ws;
-                                        ws.ws_row = cast(ushort)altmode.rows;
-                                        ws.ws_col = cast(ushort)altmode.cols;
-                                        ws.ws_xpixel = 1024;
-                                        ws.ws_ypixel = 768;
-
-                                        auto rc = ioctl(altmode.master_fd, TIOCSWINSZ, &ws);
-                                        if (rc < 0)
-                                        {
-                                            throw new Exception("ioctl(TIOCSWINSZ) error: " ~ fromStringz(strerror(errno)).idup());
-                                        }*/
-
                                         break;
                                     default:
                                         writefln("Unknown mode %d", numbers[0]);
@@ -1283,6 +1376,10 @@ process_escape_sequences(CMDGlobalState cgs,
                             {
                                 switch(numbers[0])
                                 {
+                                    case 1:
+                                        /*Turn off application cursor mode*/
+                                        altmode.cursor_mode = false;
+                                        break;
                                     case 4:
                                         /*Turn off insert mode*/
                                         altmode.insert_mode = false;
@@ -1295,19 +1392,6 @@ process_escape_sequences(CMDGlobalState cgs,
                                         break;
                                     case 1049:
                                         mode = Mode.Working;
-
-                                        /*winsize ws;
-                                        ws.ws_row = cast(ushort)altmode.rows;
-                                        ws.ws_col = 160;
-                                        ws.ws_xpixel = 1024;
-                                        ws.ws_ypixel = 768;
-
-                                        auto rc = ioctl(altmode.master_fd, TIOCSWINSZ, &ws);
-                                        if (rc < 0)
-                                        {
-                                            throw new Exception("ioctl(TIOCSWINSZ) error: " ~ fromStringz(strerror(errno)).idup());
-                                        }*/
-
                                         break;
                                     default:
                                         writefln("Unknown mode %d", numbers[0]);
@@ -1391,6 +1475,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                         //*pcur_attr = *pcur_attr & 0xFFF0 | Attr.White | Attr.Underscore;
                                         if (numbers[ni+1] == 5)
                                         {
+                                            if  (numbers[ni+2]==32) numbers[ni+2]=1;
                                             *pcur_attr = *pcur_attr & 0xFFF0 | (numbers[ni+2] & 0xF);
                                             break numbers_loop;
                                         }
@@ -1466,6 +1551,11 @@ process_escape_sequences(CMDGlobalState cgs,
                             final switch(mode)
                             {
                                 case Mode.Working:
+                                    with(altmode)
+                                    {
+                                        scroll_from = numbers[0]-1;
+                                        scroll_to = numbers[1];
+                                    }
                                     break;
                                 case Mode.Alternate:
                                     with(altmode)
@@ -1768,12 +1858,12 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                         }
                         ks = get_key_for_command_out(command_out_key(cwd, new_id, out_id1));
                         key = ks;
-                    //writefln("buf = %s", buf[0..buf_r]);
+                    //writefln("buf = %s", buf[0..max_r]);
                         ds = get_data_for_command_out(
                                 command_out_data(Clock.currTime().stdTime(), pipe, 
                                     buf_r,
-                                    buf[0..buf_r].idup(),
-                                    attrs[0..attrs_r]));
+                                    buf[0..max_r].idup(),
+                                    attrs[0..$]));
                         data = ds;
                         res = cgs.db_command_output.put(cgs.txn, &key, &data);
                         if (res != 0)
@@ -1820,7 +1910,7 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
 }
 
 private int
-fork_command(CMDGlobalState cgs, string cwd, string command, Tid tid)
+fork_command(CMDGlobalState cgs, string cwd, string command, Tid tid, winsize ws)
 {
     cgs.recommit();
 
@@ -1923,6 +2013,7 @@ cwd, id
 cwd, command_id, out_id,
     time, stderr/stdout, output*/
 
+    if (!cwd.isDir()) cwd = cwd[0..cwd.lastIndexOf("/")];
     chdir(cwd);
 
     version(WithoutTTY)
@@ -1937,12 +2028,6 @@ cwd, command_id, out_id,
     }
     else
     {
-        winsize ws;
-        ws.ws_row = 25;
-        ws.ws_col = 80;
-        ws.ws_xpixel = 1024;
-        ws.ws_ypixel = 768;
-
         if (!access("/bin/bash".toStringz(), X_OK) == 0)
             throw new Exception(text("Not an executable file: ", "/bin/bash"));
 
@@ -2028,7 +2113,11 @@ cwd, command_id, out_id,
     WorkMode workmode1;
     WorkMode workmode2;
     AltMode altmode;
-    altmode.master_fd = master;
+    altmode.cols = ws.ws_col;
+    altmode.rows = ws.ws_row;
+    altmode.scroll_from = 0;
+    altmode.scroll_to = altmode.rows;
+    writefln("ALTMODE.WS: %dx%d", altmode.cols, altmode.rows);
     bool stdin_closed = false;
     while(!cgs.finish)
     {
@@ -2095,7 +2184,7 @@ cwd, command_id, out_id,
             }
             if ( !stdin_closed && FD_ISSET(fdstdin, &wfds) )
             {
-                receiveTimeout( 0.seconds, 
+                while( receiveTimeout( 0.seconds, 
                         (string input) {
                             /*foreach (i; input)
                             {
@@ -2121,10 +2210,21 @@ cwd, command_id, out_id,
                                     writefln("Ctrl+C");
                                     kill(pid, SIGINT);
                                 }
+                                if (altmode.cursor_mode)
+                                {
+                                    if (input.startsWith("\x1B[") &&
+                                            input.length > 2 &&
+                                            "ABCD".indexOf(input[2]) >= 0)
+                                    {
+                                        input = input[0..1] ~ "O" ~ input[2..3];
+                                    }
+                                }
                                 core.sys.posix.unistd.write(fdstdin, input.ptr, input.length);
                             }
                         }
-                );
+                ) )
+                {
+                }
             }
             if (!stdin_closed && altmode.control_input.length > 0)
             {
@@ -2140,7 +2240,7 @@ cwd, command_id, out_id,
 
         if (eof >= 2) select_zero = true;
 
-        receiveTimeout( 0.seconds, 
+        while ( receiveTimeout( 0.seconds, 
                 (OwnerTerminated ot) {
                     writefln("Abort command due stopping parent");
                     kill(pid, SIGKILL);
@@ -2163,7 +2263,27 @@ cwd, command_id, out_id,
                     {
                         kill(pid, signal);
                     }
-                } );
+                },
+                (winsize new_ws)
+                {
+                    auto rc = ioctl(master, TIOCSWINSZ, &new_ws);
+                    if (rc < 0)
+                    {
+                        throw new Exception("ioctl(TIOCSWINSZ) error: " ~ fromStringz(strerror(errno)).idup());
+                    }
+
+                    altmode.cols = new_ws.ws_col;
+                    altmode.rows = new_ws.ws_row;
+                    writefln("CHANGE WS: %d, %d", altmode.cols, altmode.rows);
+
+                    altmode.buffer.length = altmode.cols*altmode.rows;
+                    altmode.alt_attrs.length = altmode.cols*altmode.rows;
+                    altmode.buffer[0..$] = " "d[0];
+                    altmode.scroll_from = 0;
+                    altmode.scroll_to = altmode.rows;
+                } ) )
+        {
+        }
 
         if (pause)
             Thread.sleep(100.msecs);
@@ -2172,7 +2292,7 @@ cwd, command_id, out_id,
 }
 
 private void
-command(string cwd, string command, Tid tid)
+command(string cwd, string command, winsize ws, Tid tid)
 {
     CMDGlobalState cgs = new CMDGlobalState();
     try {
@@ -2180,7 +2300,7 @@ command(string cwd, string command, Tid tid)
         {
             destroy(cgs);
         }
-        fork_command(cgs, cwd, command, tid);
+        fork_command(cgs, cwd, command, tid, ws);
         cgs.commit();
     } catch (shared(Throwable) exc) {
         send(tid, exc);
@@ -2190,13 +2310,221 @@ command(string cwd, string command, Tid tid)
     send(tid, thisTid);
 }
 
+private string
+get_argument(GlobalState gs, string command)
+{
+    while (command > "" && command[0] == ' ' || command[0] == '\t')
+        command = command[1..$];
+
+    string argument = "";
+
+    StringStatus status;
+
+    for (ssize_t i=0; i < command.length; i+= command.stride(i))
+    {
+        string chr = command[i..i+command.stride(i)];
+
+        if (chr == `\` && status != StringStatus.Quote)
+        {
+            i++;
+            chr = command[i..i+command.stride(i)];
+            argument ~= chr;
+        }
+        else if (chr == `"` && status == StringStatus.Normal)
+        {
+            status = StringStatus.DblQuote;
+        }
+        else if (chr == `"` && status == StringStatus.DblQuote)
+        {
+            status = StringStatus.Normal;
+        }
+        else if (chr == `'` && status == StringStatus.Normal)
+        {
+            status = StringStatus.Quote;
+        }
+        else if (chr == `'` && status == StringStatus.Quote)
+        {
+            status = StringStatus.Normal;
+        }
+        else if (chr == ` ` && status == StringStatus.Normal)
+        {
+            return "";
+        }
+        else if (chr == `&` && status == StringStatus.Normal)
+        {
+            return "";
+        }
+        else if (chr == `|` && status == StringStatus.Normal)
+        {
+            return "";
+        }
+        else
+        {
+            argument ~= chr;
+        }
+    }
+
+    return buildNormalizedPath(absolutePath(expandTilde(argument), gs.full_current_path));
+}
+
+private bool
+write_command_and_response(GlobalState gs, string command, string error)
+{
+    gs.txn = null;
+    string cwd = gs.full_current_path;
+    ulong id = get_max_id_of_cwd(gs, cwd);
+    ulong new_id = id+1;
+    if (id > 0)
+    {
+        new_id = id + 1000 - id%1000;
+        //writefln("last_id=%s (%%1000=%s), new_id=%s", id, id%1000, new_id);
+    }
+
+    {
+        ulong replace_id = find_command_in_cwd(gs, cwd, command);
+
+        delete_command_out(gs, cwd, replace_id);
+
+        string ks = get_key_for_command(command_key(cwd, replace_id));
+        Dbt key = ks;
+        auto res = gs.db_commands.del(gs.txn, &key);
+    }
+
+    Dbt key, data;
+    string ks = get_key_for_command(command_key(cwd, new_id));
+    key = ks;
+    command_data cmd_data = command_data(command, Clock.currTime().stdTime(), Clock.currTime().stdTime(), error > ""?-1:0);
+    string ds = get_data_for_command(cmd_data);
+    data = ds;
+
+    auto res = gs.db_commands.put(null, &key, &data);
+    if (res != 0)
+    {
+        throw new Exception("DB command not written");
+    }
+
+    if (error > "")
+    {
+        ulong out_id = 1;
+        ks = get_key_for_command_out(command_out_key(cwd, new_id, out_id));
+        key = ks;
+
+        ds = get_data_for_command_out(
+                command_out_data(Clock.currTime().stdTime(), OutPipe.STDERR, 
+                    error.length,
+                    error));
+        data = ds;
+        res = gs.db_command_output.put(null, &key, &data);
+        if (res != 0)
+        {
+            throw new Exception("DB command out not written");
+        }
+    }
+    return true;
+}
+
+private bool
+exec_builtin_command(GlobalState gs, string command)
+{
+    string orig_command = command;
+    while (command > "" && command[0] == ' ' || command[0] == '\t')
+        command = command[1..$];
+
+    while (command > "" && command[$-1] == ' ' || command[$-1] == '\t')
+        command = command[0..$-1];
+
+    if (command.startsWith("cd "))
+    {
+        string argument = get_argument(gs, command[3..$]);
+        if (argument == "") return write_command_and_response(
+                gs, orig_command, "Wrong using built-in command cd");
+
+        auto apply_rect = DRect(0, 0, 1024*1024, 1024*1024);
+        auto drect = get_rectsize_for_mark(gs, PathMnt(gs.lsblk, SL), argument, apply_rect);
+
+        if (!isNaN(drect.w))
+        {
+            drect.rescale_screen(gs.screen, SDL_Rect(0, 0, gs.screen.w, gs.screen.h));
+        }
+        else
+        {
+            writefln("Can't calculate DRect for %s", argument);
+        }
+
+        gs.state = State.FileManager;
+        write_command_and_response(
+                gs, orig_command, "");
+        return true;
+    }
+    else if (command.startsWith("go "))
+    {
+        string argument = get_argument(gs, command[3..$]);
+        if (argument == "") return write_command_and_response(
+                gs, orig_command, "Wrong using built-in command go");
+
+        auto apply_rect = DRect(0, 0, 1024*1024, 1024*1024);
+        auto drect = get_rectsize_for_mark(gs, PathMnt(gs.lsblk, SL), argument, apply_rect);
+
+        if (!isNaN(drect.w))
+        {
+            drect.rescale_screen(gs.screen, 
+                    SDL_Rect(cast(int)((gs.screen.w - gs.screen.h*0.75)/2), 
+                        cast(int)((gs.screen.h - cast(double)gs.screen.h/(gs.screen.w/gs.screen.h)*0.75)/2), 
+                        cast(int)(gs.screen.h*0.75), 
+                        cast(int)(cast(double)gs.screen.h/(gs.screen.w/gs.screen.h)*0.75)));
+        }
+        else
+        {
+            writefln("Can't calculate DRect for %s", argument);
+        }
+
+        gs.state = State.FileManager;
+        write_command_and_response(
+                gs, orig_command, "");
+        return true;
+    }
+    else if (command.startsWith("open "))
+    {
+        string argument = get_argument(gs, command[5..$]);
+        if (argument == "") return write_command_and_response(
+                gs, orig_command, "Wrong using built-in command open");
+
+        openFile(gs, PathMnt(gs.lsblk, argument));
+
+        write_command_and_response(
+                gs, orig_command, "");
+        return true;
+    }
+    else if (command.startsWith("mopen "))
+    {
+        string argument = get_argument(gs, command[6..$]);
+        if (argument == "") return write_command_and_response(
+                gs, orig_command, "Wrong using built-in command mopen");
+
+        openFileByMime(gs, argument);
+
+        write_command_and_response(
+                gs, orig_command, "");
+        return true;
+    }
+    else if (command.startsWith("select ") || command == "select")
+    {
+        return write_command_and_response(gs, orig_command, "select");
+    }
+
+    return false;
+}
+
 public int
 run_command(GlobalState gs, string command)
 {
     if (command == "") return -1;
 
+    if (exec_builtin_command(gs, command)) return 0;
+
     writefln("Start command %s", command);
-    auto tid = spawn(&.command, gs.full_current_path, command, thisTid);
+    auto tid = spawn(&.command, gs.full_current_path, command,
+           gs.command_line.ws, thisTid);
     gs.commands[tid] = command;
     return 0;
 }

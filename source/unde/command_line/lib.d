@@ -22,6 +22,7 @@ import std.math;
 import std.conv;
 import std.utf;
 import std.file;
+import std.path;
 import std.concurrency;
 import std.algorithm.iteration;
 import std.algorithm.sorting;
@@ -158,7 +159,7 @@ fix_bottom_line(GlobalState gs)
 
                                     final switch(cmd_data2.vers)
                                     {
-                                        case CommansOutVersion.Simple:
+                                        case CommandsOutVersion.Simple:
                                             rt = gs.text_viewer.font.get_size_of_line(cmd_data2.output, 
                                                     fontsize, gs.screen.w-80, line_height, color);
 
@@ -166,7 +167,7 @@ fix_bottom_line(GlobalState gs)
                                             if (cmd_data2.output.length > 0 && cmd_data2.output[$-1] != '\n') lines++;
                                             break;
 
-                                        case CommansOutVersion.Screen:
+                                        case CommandsOutVersion.Screen:
                                             rt = gs.text_viewer.font.get_size_of_line(cmd_data2.cols,
                                                     cmd_data2.rows, fontsize, color);
                                             lines = cmd_data2.rows;
@@ -231,10 +232,10 @@ bool is_command_position(GlobalState gs, string command, ssize_t pos)
 }
 
 enum StringStatus{
+    Normal,
     Quote,
     DblQuote,
-    BackApostrophe,
-    Normal
+    BackApostrophe
 }
 
 void uniq(ref string[] strings)
@@ -339,13 +340,12 @@ string autocomplete(GlobalState gs, string command, bool is_command, StringStatu
     if (is_command && command.indexOf("/") < 0)
     {
         string path = getenv("PATH".toStringz()).to!string();
-        string home = getenv("HOME".toStringz()).to!string();
         auto paths = splitter(path, ":");
 
         string[] binaries = [];
         foreach(p; paths)
         {
-            p = p.replace("~", home);
+            p = p.expandTilde();
             try
             {
                 foreach (string name; dirEntries(p, SpanMode.shallow))
@@ -358,6 +358,7 @@ string autocomplete(GlobalState gs, string command, bool is_command, StringStatu
             }
         }
 
+        binaries ~= ["cd", "select", "go", "open", "mopen"];
         sort!("a < b")(binaries);
         uniq(binaries);
         completions = binaries;
@@ -365,30 +366,29 @@ string autocomplete(GlobalState gs, string command, bool is_command, StringStatu
     else
     {
         string dir;
-        if (command.length >= 1 && command[0] == '/')
-        {
-            dir = command[0..command.lastIndexOf("/")+1];
-        }
-        else if (command.length >= 2 && command[0..2] == "./" || 
-                command.length >= 3 && command[0..3] == "../")
-        {
-            dir = gs.full_current_path ~ command[0..command.lastIndexOf("/")+1];
-        }
-        else
-        {
-            dir = gs.full_current_path;
-        }
+        dir = buildNormalizedPath(absolutePath(expandTilde(command), gs.full_current_path));
+        if (command.length > 0 && command[$-1] == '/') dir ~= "/";
+        dir = dir[0..dir.lastIndexOf("/")+1];
 
         string[] files = [];
-        foreach (string name; dirEntries(dir, SpanMode.shallow))
+        writefln("dir = %s, is null = %s, %s", dir, dir is null, dir.length);
+        if (dir !is null)
         {
-            files ~= name[name.lastIndexOf("/")+1..$];
+            try{
+                if (!dir.isDir()) dir = dir[0..dir.lastIndexOf("/")];
+                foreach (string name; dirEntries(dir, SpanMode.shallow))
+                {
+                    files ~= name[name.lastIndexOf("/")+1..$];
+                }
+
+                command = command[command.lastIndexOf("/")+1..$];
+
+                sort!("a < b")(files);
+                completions = files;
+            } catch (FileException exp)
+            {
+            }
         }
-
-        command = command[command.lastIndexOf("/")+1..$];
-
-        sort!("a < b")(files);
-        completions = files;
     }
 
     final switch (status)
@@ -435,6 +435,15 @@ string autocomplete(GlobalState gs, string command, bool is_command, StringStatu
         for (ssize_t j = pos+1; j < i; j++)
             common = common_part(common, completions[j]);
         return "1"~common[command.length..$].backslashes(status);
+    }
+    else if (i - pos <= 5)
+    {
+        string result = "";
+        for (ssize_t j = pos; j < i; j++)
+        {
+            result ~= completions[j] ~ " ";
+        }
+        return "2"~result;
     }
     else
     {
@@ -602,7 +611,6 @@ redraw:
                     Dbt key, data;
                     ulong id = find_prev_command(cursor, cwd, nav_skip_cmd_id,
                             key, data);
-                    bool first_cmd = true;
 
                     if (id != 0)
                     {
@@ -618,7 +626,6 @@ redraw:
                             parse_key_for_command(key_string, cmd_key);
                             if (cwd != cmd_key.cwd)
                             {
-                    writefln("cwd == %s != %s", cwd, cmd_key.cwd);
                                 id = 0;
                                 break;
                             }
@@ -634,6 +641,7 @@ redraw:
                                     Dbt key2, data2;
                                     ulong out_id = cmd_key.id == nav_cmd_id ? nav_out_id : 0;
                                     out_id = find_prev_command_out(cursor2, cwd, cmd_key.id, out_id, key2, data2);
+                                    bool first_out = true;
 
                                     if (out_id > 0)
                                     {
@@ -667,7 +675,7 @@ redraw:
                                                 SDL_Rect rt;
                                                 final switch(cmd_data2.vers)
                                                 {
-                                                    case CommansOutVersion.Simple:
+                                                    case CommandsOutVersion.Simple:
                                                         rt = gs.text_viewer.font.get_size_of_line(cmd_data2.output, 
                                                                 fontsize, gs.screen.w-80, line_height, color);
 
@@ -704,8 +712,7 @@ redraw:
                                                             }
 
                                                             /* Draw cursor */
-                                                            if (first_cmd &&
-                                                                    cmd_data2.pos < tt.chars.length &&
+                                                            if (first_out && cmd_data2.pos < tt.chars.length &&
                                                                     command_in_focus_id == cmd_key2.cmd_id)
                                                             {
                                                                 auto rect2= tt.chars[cmd_data2.pos];
@@ -744,7 +751,7 @@ redraw:
                                                             }
                                                         }
                                                         break;
-                                                    case CommansOutVersion.Screen:
+                                                    case CommandsOutVersion.Screen:
                                                         rt = gs.text_viewer.font.get_size_of_line(cmd_data2.cols,
                                                                cmd_data2.rows, fontsize, color);
 
@@ -782,8 +789,7 @@ redraw:
                                                             }
 
                                                             /* Draw cursor */
-                                                            if (first_cmd &&
-                                                                    cmd_data2.pos < tt.chars.length &&
+                                                            if (first_out && cmd_data2.pos < tt.chars.length &&
                                                                     command_in_focus_id == cmd_key2.cmd_id)
                                                             {
                                                                 auto rect2= tt.chars[cmd_data2.pos];
@@ -824,7 +830,7 @@ redraw:
                                                         break;
                                                 }
 
-                                                first_cmd = false;
+                                                first_out = false;
 
                                                 if (rect.y <= gs.mouse_screen_y && 
                                                         rect.y+rect.h-line_height >= gs.mouse_screen_y)
@@ -1362,6 +1368,33 @@ redraw:
     }
 
 }
+
+void update_winsize(GlobalState gs)
+{
+    if (gs.command_line.fontsize < 5) return;
+
+    int line_height = cast(int)(round(SQRT2^^9)*1.2);
+    auto h = gs.screen.h - line_height*2;
+    auto w = gs.screen.w - 80;
+
+    auto st = gs.text_viewer.font.get_char_from_cache(" ", 
+            gs.command_line.fontsize, SDL_Color(0xFF, 0xFF, 0xFF, 0xFF));
+    if (!st) return;
+
+   with ( gs.command_line.ws)
+   {
+        ws_xpixel = cast(ushort)w;
+        ws_ypixel = cast(ushort)h;
+        ws_row = cast(ushort)(h/st.h);
+        ws_col = cast(ushort)(w/st.w);
+   }
+
+   foreach (tid; gs.tid_by_command_id)
+   {
+       tid.send(gs.command_line.ws);
+   }
+}
+
 
 void
 hist_up(GlobalState gs)

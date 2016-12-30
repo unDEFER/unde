@@ -70,7 +70,11 @@ void process_key_down(GlobalState gs, SDL_Scancode scancode)
     { 
         case SDL_SCANCODE_Q:
             if (gs.current_path !in gs.enter_names)
+            {
                 gs.finish=true;
+                if (gs.ctrl)
+                    gs.restart = true;
+            }
             break;
 
         case SDL_SCANCODE_PRINTSCREEN:
@@ -137,6 +141,12 @@ void process_key_down(GlobalState gs, SDL_Scancode scancode)
             goto case;
         case SDL_SCANCODE_RSHIFT:
             gs.shift = true;
+            break;
+        case SDL_SCANCODE_LCTRL:
+            goto case;
+        case SDL_SCANCODE_RCTRL:
+            writefln("CTRL");
+            gs.ctrl = true;
             break;
 
         case SDL_SCANCODE_RETURN:
@@ -455,6 +465,12 @@ void process_event(GlobalState gs, ref SDL_Event event)
                     goto case;
                 case SDL_SCANCODE_RSHIFT:
                     gs.shift = false;
+                    break;
+                case SDL_SCANCODE_LCTRL:
+                    goto case;
+                case SDL_SCANCODE_RCTRL:
+                    writefln("-Ctrl");
+                    gs.ctrl = false;
                     break;
                 default:
                     /* Ignore key */

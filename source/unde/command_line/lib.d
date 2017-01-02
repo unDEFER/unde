@@ -23,6 +23,7 @@ import std.conv;
 import std.utf;
 import std.file;
 import std.path;
+import std.process;
 import std.concurrency;
 import std.algorithm.iteration;
 import std.algorithm.sorting;
@@ -544,8 +545,8 @@ string autocomplete(GlobalState gs, string command, bool is_command, StringStatu
     string[] completions;
     if (is_command && command.indexOf("/") < 0)
     {
-        string path = getenv("PATH".toStringz()).to!string();
-        auto paths = splitter(path, ":");
+        string path = environment["PATH"];
+        auto paths = splitter(path, pathSeparator);
 
         string[] binaries = [];
         foreach(p; paths)
@@ -576,6 +577,8 @@ string autocomplete(GlobalState gs, string command, bool is_command, StringStatu
         dir = dir[0..dir.lastIndexOf("/")+1];
 
         string[] files = [];
+        if (gs.selection_hash.length > 0)
+            files ~= "${SELECTED[@]}";
         //writefln("dir = %s, is null = %s, %s", dir, dir is null, dir.length);
         if (dir !is null)
         {
@@ -693,7 +696,7 @@ string autocomplete(GlobalState gs, string command)
     if (dbl_quotes%2 == 1)
     {
         dbl_quote = command.lastIndexOf("\"");
-        while (command[dbl_quote-1] == '\\')
+        while (dbl_quote > 0 && command[dbl_quote-1] == '\\')
         {
             dbl_quote = command[0..dbl_quote].lastIndexOf("`");
         }
@@ -703,7 +706,7 @@ string autocomplete(GlobalState gs, string command)
     if (back_apostrophes%2 == 1)
     {
         back_apostrophe = command.lastIndexOf("`");
-        while (command[back_apostrophe-1] == '\\')
+        while (back_apostrophe > 0 && command[back_apostrophe-1] == '\\')
         {
             back_apostrophe = command[0..back_apostrophe].lastIndexOf("`");
         }
@@ -1452,11 +1455,12 @@ redraw:
 
                                 //writefln("CMD: y=%s, first_cmd_or_out=%s, nav_skip_cmd_id=%s, rect.y + rect.h=%s, gs.screen.h=%s",
                                 //        y, first_cmd_or_out, nav_skip_cmd_id, rect.y + rect.h, gs.screen.h);
-                                if (y != 0 && first_cmd_or_out && nav_skip_cmd_id > 0 && (rect.y + rect.h) < gs.screen.h)
+                                /*if (y != 0 && first_cmd_or_out && nav_skip_cmd_id > 0 && (rect.y + rect.h) < gs.screen.h)
                                 {
+                                    //FYI: This loop maybe be infinite
                                     fix_bottom_line(gs);
                                     goto redraw;
-                                }
+                                }*/
 
                                 first_cmd_or_out = false;
 

@@ -720,7 +720,7 @@ class Font
                     back_color = SDL_Color(0x00, 0x80, 0x80, 0xFF);
                     break;
                 case Attr.White:
-                    back_color = SDL_Color(0xFF, 0xFF, 0xFF, 0xFF);
+                    back_color = SDL_Color(0x80, 0x80, 0x80, 0xFF);
                     break;
                 case 8+Attr.Black:
                     back_color = SDL_Color(0x00, 0x00, 0x00, 0xFF);

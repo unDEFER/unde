@@ -7,6 +7,7 @@ import unde.slash;
 import unde.command_line.db;
 import unde.font;
 import unde.lib;
+import unde.marks;
 
 import std.stdio;
 import std.conv;
@@ -75,6 +76,8 @@ struct WorkMode
     ushort saved_attr;
     char[4096] prebuf;
     ssize_t prebuf_r;
+    Tid tid;
+    bool select;
 }
 
 struct AltMode
@@ -235,13 +238,21 @@ process_escape_sequences(CMDGlobalState cgs,
                 break;
             }
 
+            with(altmode)
+            {
+                if (y < 0) y = 0;
+                if (y >= rows) y = rows-1;
+                if (x < 0) x = 0;
+                if (x >= cols) y = cols-1;
+            }
+
             //writefln("Process '%c' - %X (%d)", prebuf[i], prebuf[i], prebuf[i]);
             final switch (state)
             {
                 case StateEscape.WaitEscape:
                     if (chr.length > 1)
                     {
-                        writef("+%s", chr);
+                        //writef("+%s", chr);
                         final switch(mode)
                         {
                             case Mode.Working:
@@ -443,10 +454,10 @@ process_escape_sequences(CMDGlobalState cgs,
                     else if (prebuf[i] == '\x1B')
                     {
                         state = StateEscape.WaitBracket;
-                        auto till = prebuf[i+1..r].indexOf("\x1B");
+                        /*auto till = prebuf[i+1..r].indexOf("\x1B");
                         if (till < 0) till = r;
                         else till += i+1;
-                        writefln("\n!ESC %s", prebuf[i+1..till]);
+                        writefln("\n!ESC %s", prebuf[i+1..till]);*/
                     }
                     else if (prebuf[i] == '\x9B')
                     {
@@ -456,14 +467,14 @@ process_escape_sequences(CMDGlobalState cgs,
                     }
                     else
                     {
-                        if ( (prebuf[i] < 0x20 || prebuf[i] == 0x7F) && prebuf[i] != '\n')
+                        /*if ( (prebuf[i] < 0x20 || prebuf[i] == 0x7F) && prebuf[i] != '\n')
                         {
                             writef("*%X(%d)", prebuf[i], prebuf[i]);
                         }
                         else
                         {
                             writef("+%c", prebuf[i]);
-                        }
+                        }*/
                         final switch(mode)
                         {
                             case Mode.Working:
@@ -1088,6 +1099,10 @@ process_escape_sequences(CMDGlobalState cgs,
                                     {
                                         y = numbers[0]-1;
                                         x = numbers[1]-1;
+                                        if (y < 0) y = 0;
+                                        if (y >= rows) y = rows-1;
+                                        if (x < 0) x = 0;
+                                        if (x >= cols) y = cols-1;
                                     }
                                     break;
                             }
@@ -1782,56 +1797,87 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                         if (chr == "\n")
                         {
                             count_n++;
-                            if (count_n >= 100)
+                            if (select)
                             {
-                            //writefln("buf = %s", buf[from..i+1]);
-                                string ds = get_data_for_command_out(
-                                        command_out_data(Clock.currTime().stdTime(), pipe, 
-                                            buf_r,
-                                            buf[from..i+1].idup(),
-                                            attrs[from_a..a+1]));
-                                data = ds;
-                                auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
-                                if (res != 0)
-                                {
-                                    throw new Exception("DB command out not written");
-                                }
-                                cgs.OIT++;
-                                out_id1 = 0;
+                                string line = buf[from..i].idup();
 
-                                if (out_id1 == 0)
+                                writefln("line: %s", line);
+                                if ( exists(line) )
                                 {
-                                    out_id++;
-                                    out_id1 = out_id;
+                                    line = buildNormalizedPath(absolutePath(expandTilde(line)));
+                                    tid.send("select", line);
                                 }
-                                ks = get_key_for_command_out(command_out_key(cwd, new_id, out_id1));
-                                key = ks;
+                                else
+                                {
+                                    writefln("doesn't exist");
+                                }
+
                                 from = i+1;
                                 from_a = a+1;
                                 count_n = 0;
                             }
+                            else
+                            {
+                                if (count_n >= 100)
+                                {
+                                //writefln("buf = %s", buf[from..i+1]);
+                                    string ds = get_data_for_command_out(
+                                            command_out_data(Clock.currTime().stdTime(), pipe, 
+                                                buf_r,
+                                                buf[from..i+1].idup(),
+                                                attrs[from_a..a+1]));
+                                    data = ds;
+                                    auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
+                                    if (res != 0)
+                                    {
+                                        throw new Exception("DB command out not written");
+                                    }
+                                    cgs.OIT++;
+                                    out_id1 = 0;
+
+                                    if (out_id1 == 0)
+                                    {
+                                        out_id++;
+                                        out_id1 = out_id;
+                                    }
+                                    ks = get_key_for_command_out(command_out_key(cwd, new_id, out_id1));
+                                    key = ks;
+                                    from = i+1;
+                                    from_a = a+1;
+                                    count_n = 0;
+                                }
+                            }
                         }
                         a++;
                     }
-                    if (i < split_r) split_r = i;
 
-                    ssize_t attrs_split_r = buf[0..split_r].myWalkLength();
-                    if (attrs_split_r > attrs.length) attrs.length = attrs_split_r+1;
-
-                    //writefln("Write to DB split_r=%d buf=%s, pos = %s, cmd_out=%s", split_r, buf[from..split_r], split_r > buf_r ? buf_r : split_r, out_id1);
-                    //writefln("attrs=%s", attrs[0..attrs_split_r]);
-                    string ds = get_data_for_command_out(
-                            command_out_data(Clock.currTime().stdTime(), pipe, 
-                                split_r > buf_r ? buf_r : split_r,
-                                buf[from..split_r].idup(),
-                                attrs[from_a..attrs_split_r]));
-                    data = ds;
-                    auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
-                    if (res != 0)
+                    ssize_t attrs_split_r;
+                    if (select)
                     {
-                        throw new Exception("DB command out not written");
+                        if (from < split_r) split_r = from-1;
                     }
-                    cgs.OIT++;
+                    else
+                    {
+                        if (i < split_r) split_r = i;
+
+                        attrs_split_r = buf[0..split_r].myWalkLength();
+                        if (attrs_split_r > attrs.length) attrs.length = attrs_split_r+1;
+
+                        //writefln("Write to DB split_r=%d buf=%s, pos = %s, cmd_out=%s", split_r, buf[from..split_r], split_r > buf_r ? buf_r : split_r, out_id1);
+                        //writefln("attrs=%s", attrs[0..attrs_split_r]);
+                        string ds = get_data_for_command_out(
+                                command_out_data(Clock.currTime().stdTime(), pipe, 
+                                    split_r > buf_r ? buf_r : split_r,
+                                    buf[from..split_r].idup(),
+                                    attrs[from_a..attrs_split_r]));
+                        data = ds;
+                        auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
+                        if (res != 0)
+                        {
+                            throw new Exception("DB command out not written");
+                        }
+                        cgs.OIT++;
+                    }
 
                     //writefln("r=%d, split_r=%d, buf_r=%d", r, split_r, buf_r);
                     /*writefln("%s: buf=%s r=%s", pipe, buf[0..split_r], split_r);
@@ -1899,8 +1945,11 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                         out_id1 = 0;
                     }
                     //writefln("split_r = %d, r = %d, max_r = %d, buf_r=%d", split_r, r, max_r, buf_r);
-                    if (split_r < r && max_r > 0)
+                    if (split_r < r && max_r > 0 && !select)
                     {
+                        cgs.commit();
+                        cgs.recommit();
+
                         if (out_id1 == 0)
                         {
                             out_id++;
@@ -1909,17 +1958,18 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                         ks = get_key_for_command_out(command_out_key(cwd, new_id, out_id1));
                         key = ks;
                     //writefln("REST buf = %s", buf[0..max_r]);
-                        ds = get_data_for_command_out(
+                        string ds = get_data_for_command_out(
                                 command_out_data(Clock.currTime().stdTime(), pipe, 
                                     buf_r,
                                     buf[0..max_r].idup(),
                                     attrs[0..$]));
                         data = ds;
-                        res = cgs.db_command_output.put(cgs.txn, &key, &data);
+                        auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
                         if (res != 0)
                         {
                             throw new Exception("DB command out not written");
                         }
+                        cgs.OIT++;
                     }
                     break;
 
@@ -1960,7 +2010,8 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
 }
 
 private int
-fork_command(CMDGlobalState cgs, string cwd, string command, Tid tid, winsize ws)
+fork_command(CMDGlobalState cgs, string cwd, string command, 
+        winsize ws, immutable string[] selection, Tid tid)
 {
     cgs.recommit();
 
@@ -2065,13 +2116,10 @@ cwd, id
         command = command[1..$];
     }
 
-/*db_command_output
-cwd, command_id, out_id,
-    time, stderr/stdout, output*/
-
     if (!cwd.isDir()) cwd = cwd[0..cwd.lastIndexOf("/")];
     chdir(cwd);
 
+    bool select_files;
     version(WithoutTTY)
     {
         auto cmd_pipes = pipeProcess(["bash", "-c", command], Redirect.stdout | Redirect.stderr | Redirect.stdin);
@@ -2090,6 +2138,28 @@ cwd, command_id, out_id,
         int master;
 
         auto stderrPipe = pipe();
+
+        if (command.indexOf("${SELECTED[@]}") >= 0 && selection.length > 0)
+        {
+            environment["SELECTED_FILES"] = join(selection, "\n");
+            command = q"{declare -a SELECTED
+OLD_IFS="$IFS"
+IFS=$'\n'
+i=0
+for s in $SELECTED_FILES; do
+    SELECTED[$i]=$s
+    i=$[$i+1]
+done
+IFS="$OLD_IFS"
+
+}" ~ command;
+        }
+
+        if ( command.endsWith("| select") )
+        {
+            command = command[0..$-8];
+            select_files = true;
+        }
 
         immutable(char) *bash = "/bin/bash".toStringz();
         immutable(char) *c_opt = "-c".toStringz();
@@ -2112,10 +2182,16 @@ cwd, command_id, out_id,
         //parent
         stderrPipe.writeEnd.close();
 
+        if (command.indexOf("${SELECTED[@]}") >= 0 && selection.length > 0)
+        {
+            environment.remove("SELECTED_FILES");
+        }
+
         File mfile;
         mfile.fdopen(master, "a+");
-        scope(success) {
+        scope(exit) {
             mfile.close();
+            close(master);
         }
 
         //auto pid = spawnProcess(["bash", "-c", command], sfile, sfile, stderrPipe.writeEnd); 
@@ -2168,6 +2244,8 @@ cwd, command_id, out_id,
     Mode mode;
     WorkMode workmode1;
     WorkMode workmode2;
+    workmode1.tid = tid;
+    workmode1.select = select_files;
     AltMode altmode;
     altmode.cols = ws.ws_col;
     altmode.rows = ws.ws_row;
@@ -2343,7 +2421,8 @@ cwd, command_id, out_id,
 }
 
 private void
-command(string cwd, string command, winsize ws, Tid tid)
+command(string cwd, string command, winsize ws,
+        immutable string[] selection, Tid tid)
 {
     CMDGlobalState cgs = new CMDGlobalState();
     try {
@@ -2351,7 +2430,7 @@ command(string cwd, string command, winsize ws, Tid tid)
         {
             destroy(cgs);
         }
-        fork_command(cgs, cwd, command, tid, ws);
+        fork_command(cgs, cwd, command, ws, selection, tid);
         cgs.commit();
     } catch (shared(Throwable) exc) {
         send(tid, exc);
@@ -2361,13 +2440,17 @@ command(string cwd, string command, winsize ws, Tid tid)
     send(tid, thisTid);
 }
 
-private string
-get_argument(GlobalState gs, string command)
+private auto
+get_arguments(bool Multiversion = true)(GlobalState gs, string command)
 {
     while (command > "" && command[0] == ' ' || command[0] == '\t')
         command = command[1..$];
 
     string argument = "";
+    static if (Multiversion)
+    {
+        string[] arguments;
+    }
 
     StringStatus status;
 
@@ -2399,15 +2482,25 @@ get_argument(GlobalState gs, string command)
         }
         else if (chr == ` ` && status == StringStatus.Normal)
         {
-            return "";
+            static if (Multiversion)
+            {
+                arguments ~= buildNormalizedPath(absolutePath(expandTilde(argument), gs.full_current_path));
+                argument = "";
+                while (i+1 < command.length && command[i+1] == ' ')
+                    i++;
+            }
+            else
+            {
+                return [""];
+            }
         }
         else if (chr == `&` && status == StringStatus.Normal)
         {
-            return "";
+            return [""];
         }
         else if (chr == `|` && status == StringStatus.Normal)
         {
-            return "";
+            return [""];
         }
         else
         {
@@ -2415,7 +2508,23 @@ get_argument(GlobalState gs, string command)
         }
     }
 
-    return buildNormalizedPath(absolutePath(expandTilde(argument), gs.full_current_path));
+    static if (Multiversion)
+    {
+        if (argument > "")
+            arguments ~= buildNormalizedPath(absolutePath(expandTilde(argument), gs.full_current_path));
+        return arguments;
+    }
+    else
+    {
+        return [buildNormalizedPath(absolutePath(expandTilde(argument), gs.full_current_path))];
+    }
+}
+
+private string
+get_argument(GlobalState gs, string command)
+{
+    string[] args = get_arguments!false(gs, command);
+    return args[0];
 }
 
 private bool
@@ -2491,7 +2600,7 @@ exec_builtin_command(GlobalState gs, string command)
                 gs, orig_command, "Wrong using built-in command cd");
 
         auto apply_rect = DRect(0, 0, 1024*1024, 1024*1024);
-        auto drect = get_rectsize_for_mark(gs, PathMnt(gs.lsblk, SL), argument, apply_rect);
+        auto drect = get_rectsize_for_path(gs, PathMnt(gs.lsblk, SL), argument, apply_rect);
 
         if (!isNaN(drect.w))
         {
@@ -2514,7 +2623,7 @@ exec_builtin_command(GlobalState gs, string command)
                 gs, orig_command, "Wrong using built-in command go");
 
         auto apply_rect = DRect(0, 0, 1024*1024, 1024*1024);
-        auto drect = get_rectsize_for_mark(gs, PathMnt(gs.lsblk, SL), argument, apply_rect);
+        auto drect = get_rectsize_for_path(gs, PathMnt(gs.lsblk, SL), argument, apply_rect);
 
         if (!isNaN(drect.w))
         {
@@ -2558,9 +2667,25 @@ exec_builtin_command(GlobalState gs, string command)
                 gs, orig_command, "");
         return true;
     }
-    else if (command.startsWith("select ") || command == "select")
+    else if (command.startsWith("select "))
     {
-        return write_command_and_response(gs, orig_command, "select");
+        string[] arguments = get_arguments(gs, command[7..$]);
+        if (arguments == []) return write_command_and_response(
+                gs, orig_command, "Wrong using built-in command select");
+
+        foreach (arg; arguments)
+        {
+            auto pathmnt = PathMnt(gs.lsblk, arg);
+            auto apply_rect = DRect(0, 0, 1024*1024, 1024*1024);
+            auto drect = get_rectsize_for_path(gs, PathMnt(gs.lsblk, SL), arg, apply_rect);
+            gs.selection_hash[pathmnt] = drect;
+        }
+
+        gs.dirty = true;
+
+        write_command_and_response(
+                gs, orig_command, "");
+        return true;
     }
 
     return false;
@@ -2573,9 +2698,12 @@ run_command(GlobalState gs, string command)
 
     if (exec_builtin_command(gs, command)) return 0;
 
+    string[] selection;
+    if (command.indexOf("${SELECTED[@]}") >= 0)
+        selection = gs.selection_hash.keys;
     writefln("Start command %s", command);
     auto tid = spawn(&.command, gs.full_current_path, command,
-           gs.command_line.ws, thisTid);
+           gs.command_line.ws, selection.idup(), thisTid);
     gs.commands[tid] = command;
     return 0;
 }

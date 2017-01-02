@@ -54,11 +54,13 @@ mixin template init_deinitBDB(bool main_thread = false)
 
     void initBDB(bool force_recover = false)
     {
-        string home = getenv("HOME".toStringz()).to!string();
+        string home = environment["HOME"];
         version(Windows)
         {
 	    if (!home.startsWith("C:\\cygwin\\home") &&
-			!home.startsWith("D:\\cygwin\\home"))
+			!home.startsWith("D:\\cygwin\\home") &&
+            !home.startsWith("C:\\cygwin64\\home") &&
+			!home.startsWith("D:\\cygwin64\\home"))
             {
                 throw new Exception("Please run under Cygwin environment. Read README.");
             }
@@ -862,7 +864,7 @@ class GlobalState
     {
         try
         {
-            string home = getenv("HOME".toStringz()).to!string();
+            string home = environment["HOME"];
             auto file = File(home ~ "/.unde/mime");
             foreach (line; file.byLine())
             {

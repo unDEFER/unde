@@ -4,6 +4,7 @@ import unde.global_state;
 import unde.lsblk;
 import unde.path_mnt;
 import unde.slash;
+import unde.marks;
 
 import std.stdio;
 import std.conv;
@@ -1035,7 +1036,7 @@ check_scanners(GlobalState gs)
             gs.delete_commands.length > 0)
     {
         gs.dirty = true;
-        receiveTimeout( 0.seconds, 
+        while(receiveTimeout( 0.seconds, 
                 (Tid tid, PathMnt path)
                 {
                     bool is_scanner;
@@ -1297,11 +1298,29 @@ check_scanners(GlobalState gs)
                             assert(false, "Unexpected MsgState");
                     }
                 },
+                (string command, string arg)
+                {
+                    if (command == "select")
+                    {
+                        auto pathmnt = PathMnt(gs.lsblk, arg);
+                        auto apply_rect = DRect(0, 0, 1024*1024, 1024*1024);
+                        auto drect = get_rectsize_for_path(gs, PathMnt(gs.lsblk, SL), arg, apply_rect);
+                        gs.selection_hash[pathmnt] = drect;
+                        gs.dirty = true;
+                    }
+                    else
+                    {
+                        writefln("Main thread. Unknown command %s", command);
+                    }
+                },
                 (Variant v)
                 {
                     writefln("main.thread UNKNOWN MESSAGE: %s", v);
                 }
-            );
+            )
+        )
+        {
+        }
     }
 
     foreach(i, pid; gs.pids )

@@ -25,7 +25,7 @@ import std.conv;
 
 
 public DRect
-get_rectsize_for_mark(GlobalState gs, PathMnt path, string full_path,
+get_rectsize_for_path(GlobalState gs, PathMnt path, string full_path,
         DRect apply_rect, SortType sort = SortType.ByName)
 {
     bool pmnt;
@@ -126,7 +126,7 @@ get_rectsize_for_mark(GlobalState gs, PathMnt path, string full_path,
 	}
 		//writefln("next=%s", next);
 
-        auto drect = get_rectsize_for_mark(gs, path.next(next), full_path, rectsize.rect(sort), rectsize.sort);
+        auto drect = get_rectsize_for_path(gs, path.next(next), full_path, rectsize.rect(sort), rectsize.sort);
         return drect;
     }
     return DRect();
@@ -161,7 +161,7 @@ void draw_marks(GlobalState gs, ref CoordinatesPlusScale surf)
             if (full_path)
             {
                 auto apply_rect = DRect(0, 0, 1024*1024, 1024*1024);
-                auto drect = get_rectsize_for_mark(gs, PathMnt(gs.lsblk, SL), full_path, apply_rect);
+                auto drect = get_rectsize_for_path(gs, PathMnt(gs.lsblk, SL), full_path, apply_rect);
 
                 SDL_Rect on_surf = drect.to_screen(surf);
                 SDL_Rect on_screen = drect.to_screen(gs.screen);
@@ -267,7 +267,7 @@ void remark_desktop(GlobalState gs)
 
 void mark(GlobalState gs, string m, bool hide_remark_message = false)
 {
-    //writefln("mark %s", m);
+    writefln("mark %s", m);
     Mark mark;
     mark.state = gs.state;
     string path;
@@ -303,7 +303,7 @@ void mark(GlobalState gs, string m, bool hide_remark_message = false)
             break;
     }
 
-    //writefln("%s, screen_rect = %s, path = %s", m, mark.screen_rect, path);
+    writefln("%s, screen_rect = %s, path = %s", m, mark.screen_rect, path);
     Dbt key, data;
     key = m;
     data = mark;
@@ -350,7 +350,7 @@ void go_mark(GlobalState gs, string m)
     Dbt key = m;
     Dbt data;
 
-    //writefln("Go Mark %s", m);
+    writefln("Go Mark %s", m);
     auto res = gs.db_marks.get(null, &key, &data);
     if (res == 0)
     {
@@ -380,12 +380,12 @@ void go_mark(GlobalState gs, string m)
 			full_path = full_path[0..2];
 		}
 	}
-	    //writefln("path=%s, screen_rect=%s", path, mark.screen_rect);
+	    writefln("path=%s, screen_rect=%s", path, mark.screen_rect);
 
         if (full_path)
         {
             auto apply_rect = DRect(0, 0, 1024*1024, 1024*1024);
-            auto drect = get_rectsize_for_mark(gs, PathMnt(gs.lsblk, SL), full_path, apply_rect);
+            auto drect = get_rectsize_for_path(gs, PathMnt(gs.lsblk, SL), full_path, apply_rect);
 
             if (!isNaN(drect.w))
             {

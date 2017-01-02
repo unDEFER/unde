@@ -447,6 +447,38 @@ struct Text_Viewer_State{
     Font font;
 }
 
+struct CmdOutPos
+{
+    ulong cmd_id;
+    ulong out_id;
+    ssize_t pos;
+
+    int opCmp(CmdOutPos rhs)
+    {
+        if (cmd_id > rhs.cmd_id)
+            return 1;
+        else if (cmd_id < rhs.cmd_id)
+            return -1;
+        else
+        {
+            if (out_id > rhs.out_id)
+                return 1;
+            else if (out_id < rhs.out_id)
+                return -1;
+            else
+            {
+                if (pos > rhs.pos)
+                    return 1;
+                if (pos < rhs.pos)
+                    return -1;
+                else
+                    return 0;
+            }
+        }
+    }
+
+}
+
 struct Command_Line_State{
     int fontsize = 9;
     bool font_changed;
@@ -467,10 +499,13 @@ struct Command_Line_State{
     ulong nav_cmd_id;
     ulong nav_out_id;
 
-    ulong mouse_cmd_id;
-    ulong mouse_out_id;
+    CmdOutPos mouse;
+    CmdOutPos first_click;
+    CmdOutPos start_selection;
+    CmdOutPos end_selection;
     double mouse_rel_y;
     long y;
+    long neg_y;
 
     long last_enter;
 
@@ -486,9 +521,12 @@ struct Command_Line_State{
 
     long last_left_click;
     long last_right_click;
+    long last_ctrl;
     int moved_while_click;
 
     void delegate() on_click;
+
+    bool ctrl_mode;
 
     winsize ws;
 }

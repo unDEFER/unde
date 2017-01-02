@@ -12,6 +12,7 @@ import derelict.sdl2.sdl;
 import std.stdio;
 import std.string;
 import std.utf;
+import std.math;
 import std.concurrency;
 
 enum CommandLineEventHandlerResult
@@ -391,6 +392,12 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
                 if (enter)
                 {
                 }
+                else if (shift)
+                {
+                    int line_height = cast(int)(round(SQRT2^^9)*1.2);
+                    y += gs.screen.h - 2*line_height;
+                    neg_y = 0;
+                }
                 else if (command_in_focus_id > 0)
                 {
                     string input = "\x1B[5~";
@@ -404,6 +411,12 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             {
                 if (enter)
                 {
+                }
+                else if (shift)
+                {
+                    int line_height = cast(int)(round(SQRT2^^9)*1.2);
+                    y -= gs.screen.h - 2*line_height;
+                    neg_y -= gs.screen.h - 2*line_height;
                 }
                 else if (command_in_focus_id > 0)
                 {
@@ -544,6 +557,11 @@ process_event(GlobalState gs, ref SDL_Event event)
                 case SDL_SCANCODE_LCTRL:
                     goto case;
                 case SDL_SCANCODE_RCTRL:
+                    if (SDL_GetTicks() - gs.command_line.last_ctrl < DOUBLE_DELAY)
+                    {
+                        gs.command_line.ctrl_mode ^= 1;
+                    }
+                    gs.command_line.last_ctrl = SDL_GetTicks();
                     gs.command_line.ctrl = false;
                     break;
                 case SDL_SCANCODE_LSHIFT:
@@ -562,7 +580,27 @@ process_event(GlobalState gs, ref SDL_Event event)
             {
                 with (gs.command_line)
                 {
-                    y += event.motion.yrel;
+                    if (ctrl_mode ^ ctrl)
+                    {
+                        if (mouse > first_click)
+                        {
+                            start_selection = first_click;
+                            end_selection = mouse;
+                        }
+                        else
+                        {
+                            start_selection = mouse;
+                            end_selection = first_click;
+                        }
+                    }
+                    else
+                    {
+                        y += event.motion.yrel;
+                        if (event.motion.yrel > 0)
+                            neg_y = 0;
+                        else
+                            neg_y += event.motion.yrel;
+                    }
                     last_redraw = 0;
                 }
             }
@@ -577,6 +615,13 @@ process_event(GlobalState gs, ref SDL_Event event)
                 case SDL_BUTTON_LEFT:
                     gs.mouse_buttons |= unDE_MouseButtons.Left;
                     gs.command_line.moved_while_click = 0;
+                    with (gs.command_line)
+                    {
+                        if (ctrl_mode ^ ctrl)
+                        {
+                            first_click = mouse;
+                        }
+                    }
                     break;
                 case SDL_BUTTON_MIDDLE:
                     gs.mouse_buttons |= unDE_MouseButtons.Middle;
@@ -596,41 +641,101 @@ process_event(GlobalState gs, ref SDL_Event event)
                     with (gs.command_line)
                     {
                         gs.mouse_buttons &= ~unDE_MouseButtons.Left;
-                        if (!moved_while_click)
+                        if (terminal)
                         {
-                            if (SDL_GetTicks() - last_left_click < DOUBLE_DELAY)
+                            if (!moved_while_click)
                             {
-                                command_in_focus_id = 0;
-                                SDL_StopTextInput();
-                            }
-                            else if (on_click !is null)
-                            {
-                                on_click();
-                            }
-                            else
-                            {
-                                //writefln("mouse_cmd_id=%s", mouse_cmd_id);
-                                auto ptid = mouse_cmd_id in gs.tid_by_command_id;
-                                if (ptid)
+                                if (shift)
                                 {
-                                    writefln("Command in Focus");
-                                    command_in_focus_tid = *ptid;
-                                    command_in_focus_id = mouse_cmd_id;
-                                    enter = false;
-                                    SDL_StartTextInput();
+                                    writefln("Shift!");
+                                    if (mouse > first_click)
+                                    {
+                                        end_selection = mouse;
+                                    }
+                                    else
+                                    {
+                                        start_selection = mouse;
+                                    }
+                                    selection_to_buffer(gs);
                                 }
-                                else
+                                else if (on_click !is null)
+                                {
+                                    on_click();
+                                }
+                                else if (ctrl_mode ^ ctrl)
+                                {
+                                    start_selection = CmdOutPos();
+                                    end_selection = CmdOutPos();
+                                }
+                                else if (SDL_GetTicks() - last_left_click < DOUBLE_DELAY)
                                 {
                                     command_in_focus_id = 0;
                                     SDL_StopTextInput();
                                 }
+                                else
+                                {
+                                    //writefln("mouse_cmd_id=%s", mouse_cmd_id);
+                                    auto ptid = mouse.cmd_id in gs.tid_by_command_id;
+                                    if (ptid)
+                                    {
+                                        writefln("Command in Focus");
+                                        command_in_focus_tid = *ptid;
+                                        command_in_focus_id = mouse.cmd_id;
+                                        enter = false;
+                                        SDL_StartTextInput();
+                                    }
+                                    else
+                                    {
+                                        command_in_focus_id = 0;
+                                        SDL_StopTextInput();
+                                    }
+                                }
+                                last_left_click = SDL_GetTicks();
                             }
-                            last_left_click = SDL_GetTicks();
+                            else if (ctrl_mode ^ ctrl)
+                            {
+                                if (mouse > first_click)
+                                {
+                                    start_selection = first_click;
+                                    end_selection = mouse;
+                                }
+                                else
+                                {
+                                    start_selection = mouse;
+                                    end_selection = first_click;
+                                }
+                                selection_to_buffer(gs);
+                            }
                         }
                     }
                     break;
                 case SDL_BUTTON_MIDDLE:
                     gs.mouse_buttons &= ~unDE_MouseButtons.Middle;
+                    with (gs.command_line)
+                    {
+                        if (enter)
+                        {
+                           char* clipboard = SDL_GetClipboardText();
+                            if (clipboard)
+                            {
+                                string buffer = clipboard.fromStringz().idup();
+
+                                command = (command[0..pos] ~
+                                        buffer ~
+                                        command[pos..$]).idup();
+                                pos += buffer.length;
+                            }
+                        }
+                        else if (command_in_focus_id > 0)
+                        {
+                            char* clipboard = SDL_GetClipboardText();
+                            if (clipboard)
+                            {
+                                string buffer = clipboard.fromStringz().idup();
+                                send(command_in_focus_tid, buffer);
+                            }
+                        }
+                    }
                     break;
                 case SDL_BUTTON_RIGHT:
                     gs.mouse_buttons &= ~unDE_MouseButtons.Right;
@@ -645,21 +750,22 @@ process_event(GlobalState gs, ref SDL_Event event)
             {
                 if (terminal)
                 {
-                    auto y = event.wheel.y;
-                    while (y > 0)
+                    if (ctrl_mode ^ ctrl)
                     {
-                        fontsize++;
-                        y--;
+                        y += event.wheel.y * 40;
+                        if (event.wheel.y > 0)
+                            neg_y = 0;
+                        else
+                            neg_y += event.wheel.y * 40;
                     }
-                    while (y < 0)
+                    else
                     {
-                        fontsize--;
-                        y++;
-                    }
+                        fontsize += event.wheel.y;
 
-                    font_changed = true;
-                    if (fontsize < 4) fontsize = 4;
-                    if (fontsize > 15) fontsize = 15;
+                        font_changed = true;
+                        if (fontsize < 4) fontsize = 4;
+                        if (fontsize > 15) fontsize = 15;
+                    }
                     last_redraw = 0;
 
                     update_winsize(gs);

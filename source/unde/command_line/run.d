@@ -220,7 +220,7 @@ process_escape_sequences(CMDGlobalState cgs,
         {
             //Stat processing: 570 ms, 203 μs of 3 s
             //assert(buf[0..buf_r].walkLength == attrs_r, format("walkLength=%d, attrs_r=%d", buf[0..buf_r].walkLength, attrs_r));
-            cur_chr_stride = prebuf.mystride(i);
+            cur_chr_stride = prebuf.mystride(i, r);
 
             char[] chr;
             if (i+cur_chr_stride > r)
@@ -230,7 +230,7 @@ process_escape_sequences(CMDGlobalState cgs,
             else
                 chr = prebuf[i..i+cur_chr_stride];
 
-            if (i+1 >= r && chr.length == 1 && chr[0] & 0b1000_0000)
+            if (i+chr.length >= r && chr.length == 1 && chr[0] & 0b1000_0000)
             {
                 break;
             }
@@ -837,9 +837,10 @@ process_escape_sequences(CMDGlobalState cgs,
                                 case Mode.Working:
                                     if (max_r+num > buf.length) num = buf.length-max_r;
                                     for (ssize_t j = max_r-1; j >= buf_r; j--)
-                                    {
                                         buf[j+num] = buf[j];
-                                    }
+                                    attrs.length += num;
+                                    for (ssize_t j = attrs.length-num-1; j >= attrs_r; j--)
+                                        attrs[j+num] = attrs[j];
                                     buf[buf_r..buf_r+num] = ' ';
                                     max_r+=num;
                                     break;
@@ -1739,7 +1740,11 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                     ssize_t split_r;
                     {
                         ssize_t sym = buf[0..r].lastIndexOf("\n");
-                        if (sym >= 0) split_r = 0+sym+1;
+                        if (sym >= 0) 
+                        {
+                            writefln("Split_r by newline");
+                            split_r = 0+sym+1;
+                        }
                         else if (r1 < buf_length_was) split_r = r;
                         else
                         {
@@ -1760,21 +1765,66 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                                             break;
                                         }
                                     }
+                                    writefln("Split_r by symbol");
                                 }
                             }
                         }
                     }
 
+                    ssize_t count_n;
+                    ssize_t i;
+                    ssize_t a;
+                    ssize_t from = 0;
+                    ssize_t from_a = 0;
+                    for (i=0; i < split_r; i+=buf.mystride(i))
+                    {
+                        char[] chr = buf[i..i + buf.mystride(i)];
+                        if (chr == "\n")
+                        {
+                            count_n++;
+                            if (count_n >= 100)
+                            {
+                            //writefln("buf = %s", buf[from..i+1]);
+                                string ds = get_data_for_command_out(
+                                        command_out_data(Clock.currTime().stdTime(), pipe, 
+                                            buf_r,
+                                            buf[from..i+1].idup(),
+                                            attrs[from_a..a+1]));
+                                data = ds;
+                                auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
+                                if (res != 0)
+                                {
+                                    throw new Exception("DB command out not written");
+                                }
+                                cgs.OIT++;
+                                out_id1 = 0;
+
+                                if (out_id1 == 0)
+                                {
+                                    out_id++;
+                                    out_id1 = out_id;
+                                }
+                                ks = get_key_for_command_out(command_out_key(cwd, new_id, out_id1));
+                                key = ks;
+                                from = i+1;
+                                from_a = a+1;
+                                count_n = 0;
+                            }
+                        }
+                        a++;
+                    }
+                    if (i < split_r) split_r = i;
+
                     ssize_t attrs_split_r = buf[0..split_r].myWalkLength();
                     if (attrs_split_r > attrs.length) attrs.length = attrs_split_r+1;
 
-                    //writefln("Write to DB split_r=%d buf=%s, pos = %s", split_r, buf[0..split_r], split_r > buf_r ? buf_r : split_r);
+                    //writefln("Write to DB split_r=%d buf=%s, pos = %s, cmd_out=%s", split_r, buf[from..split_r], split_r > buf_r ? buf_r : split_r, out_id1);
                     //writefln("attrs=%s", attrs[0..attrs_split_r]);
                     string ds = get_data_for_command_out(
                             command_out_data(Clock.currTime().stdTime(), pipe, 
                                 split_r > buf_r ? buf_r : split_r,
-                                buf[0..split_r].idup(),
-                                attrs[0..attrs_split_r]));
+                                buf[from..split_r].idup(),
+                                attrs[from_a..attrs_split_r]));
                     data = ds;
                     auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
                     if (res != 0)
@@ -1858,7 +1908,7 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                         }
                         ks = get_key_for_command_out(command_out_key(cwd, new_id, out_id1));
                         key = ks;
-                    //writefln("buf = %s", buf[0..max_r]);
+                    //writefln("REST buf = %s", buf[0..max_r]);
                         ds = get_data_for_command_out(
                                 command_out_data(Clock.currTime().stdTime(), pipe, 
                                     buf_r,
@@ -1932,9 +1982,15 @@ cwd, id
 
         delete_command_out(cgs, cwd, replace_id);
 
+        cgs.commit;
+        cgs.recommit;
+
         string ks = get_key_for_command(command_key(cwd, replace_id));
         Dbt key = ks;
         auto res = cgs.db_commands.del(cgs.txn, &key);
+
+        cgs.commit;
+        cgs.recommit;
     }
 
     tid.send(thisTid, "command_id", new_id);
@@ -2205,11 +2261,6 @@ cwd, command_id, out_id,
                             }
                             else
                             {
-                                if (input == "\x03") // Ctrl+C
-                                {
-                                    writefln("Ctrl+C");
-                                    kill(pid, SIGINT);
-                                }
                                 if (altmode.cursor_mode)
                                 {
                                     if (input.startsWith("\x1B[") &&

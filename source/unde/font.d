@@ -34,6 +34,8 @@ struct LineSize
     int line_height;
     SDL_Color color;
     ushort[] attrs;
+    ssize_t start_pos;
+    ssize_t end_pos;
 }
 
 enum Attr
@@ -230,9 +232,11 @@ class Font
 
     auto
     get_line_from_cache(string text, 
-            int size, int line_width, int line_height, SDL_Color color, ushort[] attrs = null)
+            int size, int line_width, int line_height, SDL_Color color, 
+            ushort[] attrs = null, ssize_t start_pos=-1, ssize_t end_pos=-1)
     {
-        auto linesize = LineSize(text.idup(), size, line_width, line_height, color, attrs.dup());
+        auto linesize = LineSize(text.idup(), size, line_width, line_height, 
+                color, attrs.dup(), start_pos, end_pos);
         auto tt = linesize in lines_cache;
         if (tt)
         {
@@ -299,9 +303,13 @@ class Font
                 ushort attr = (Attr.Black<<4 | Attr.White);
                 if ( attrs && attrs_i < attrs.length )
                     attr = attrs[attrs_i];
+                else
+                    attr = Attr.Black<<4 | Attr.White;
+                if (i >= start_pos && i <= end_pos)
+                    attr = attr & 0x0F | (Attr.Blue << 4);
                 if ( attr != (Attr.Black<<4 | Attr.White) )
                 {
-                    switch (attrs[attrs_i] & 0x0F)
+                    switch (attr & 0x0F)
                     {
                         case Attr.Black:
                             real_color = SDL_Color(0x00, 0x00, 0x00, 0xFF);
@@ -410,9 +418,11 @@ class Font
 
     auto
     get_line_from_cache(dchar[] text, int cols, int rows,
-            int size, int line_height, SDL_Color color, ushort[] attrs = null)
+            int size, int line_height, SDL_Color color, ushort[] attrs = null,
+            ssize_t start_pos=-1, ssize_t end_pos=-1)
     {
-        auto linesize = LineSize(to!(string)(text.idup()), size, cols*rows, line_height, color, attrs.dup());
+        auto linesize = LineSize(to!(string)(text.idup()), size, cols*rows, 
+                line_height, color, attrs.dup(), start_pos, end_pos);
         auto tt = linesize in lines_cache;
         if (tt)
         {
@@ -474,9 +484,12 @@ class Font
                 ushort attr = (Attr.Black<<4 | Attr.White);
                 if ( attrs )
                     attr = attrs[i];
+                else attr = Attr.Black<<4 | Attr.White;
+                if (i >= start_pos && i <= end_pos)
+                    attr = attr & 0x0F | (Attr.Blue << 4);
                 if ( attr != (Attr.Black<<4 | Attr.White) )
                 {
-                    switch (attrs[i] & 0x0F)
+                    switch (attr & 0x0F)
                     {
                         case Attr.Black:
                             real_color = SDL_Color(0x00, 0x00, 0x00, 0xFF);

@@ -492,7 +492,7 @@ string getParent(string path)
 }
 
 size_t
-mystride(T)(ref T str, size_t pos)
+mystride(T)(ref T str, size_t pos, size_t len = 0)
 {
     /* stride falls with OutOfMemoryError Sometimes
        on not correct symbols, so we will use out stride */
@@ -500,8 +500,10 @@ mystride(T)(ref T str, size_t pos)
     if ((str[pos] & 0b1000_0000) == 0)
         return 1;
 
+    if (len == 0) len = str.length;
+
     size_t i;
-    for (i=pos+1; i < str.length && (str[i] & 0b1100_0000) == 0b1000_0000; i++)
+    for (i=pos+1; i < len && (str[i] & 0b1100_0000) == 0b1000_0000; i++)
     {
     }
     return i-pos;

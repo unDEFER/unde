@@ -29,6 +29,38 @@ import std.algorithm.sorting;
 import core.sys.posix.signal;
 import core.sys.posix.stdlib;
 
+private ssize_t
+get_position_by_chars(
+        int x, int y, SDL_Rect[] chars, ssize_t p=0)
+{
+    if (chars.length == 0) return -1;
+    ssize_t pos = chars.length/2;
+    while (pos >= 0 && chars[pos].w == 0 && chars[pos].h == 0)
+        pos--;
+    if (pos < 0) return -1;
+
+    if (y < chars[pos].y)
+    {
+        return get_position_by_chars(x, y, chars[0..pos], p);
+    }
+    else if (y > chars[pos].y + chars[pos].h)
+    {
+        return get_position_by_chars(x, y, chars[pos+1..$], p+pos+1);
+    }
+    else if (x < chars[pos].x)
+    {
+        return get_position_by_chars(x, y, chars[0..pos], p);
+    }
+    else if (x > chars[pos].x + chars[pos].w)
+    {
+        return get_position_by_chars(x, y, chars[pos+1..$], p+pos+1);
+    }
+    else
+    {
+        return p+pos;
+    }
+}
+
 private void
 fix_bottom_line(GlobalState gs)
 {
@@ -46,17 +78,18 @@ fix_bottom_line(GlobalState gs)
 
         Dbt key, data;
 
-        ulong id = mouse_cmd_id > 0 ? mouse_cmd_id : 1;
+        ulong id = mouse.cmd_id > 0 ? mouse.cmd_id : 1;
         string ks = get_key_for_command(command_key(cwd, id));
         //writefln("SET RANGE: %s (cwd=%s, id=%X)", ks, cwd, id);
         key = ks;
         id = find_next_by_key(cursor, 0, id, key, data);
 
-        //writefln("mouse_cmd_id=%s", mouse_cmd_id);
+        //writefln("mouse.cmd_id=%s", mouse.cmd_id);
         if (id != 0)
         {
+            bool cmd_next_stop;
             /* The bottom command found */
-            ulong y_off = 0;
+            long y_off = neg_y;
             //writefln("y=%s, y_off=%s", y, y_off);
             do
             {
@@ -75,6 +108,19 @@ fix_bottom_line(GlobalState gs)
                     string data_string = data.to!(string);
                     command_data cmd_data;
                     parse_data_for_command(data_string, cmd_data);
+                    if (cmd_next_stop)
+                    {
+                        cmd_next_stop = false;
+                        nav_skip_cmd_id = cmd_key.id;
+                        //writefln("nav_skip_cmd_id=%d", nav_skip_cmd_id);
+                        if (fontsize < 5)
+                        {
+                            int line_height9 = cast(int)(round(SQRT2^^fontsize)*1.2);
+                            y = y_off - gs.screen.h + line_height9*3 + 8;
+                            //writefln("CMD y = %d", y);
+                        }
+                        break;
+                    }
 
                     int line_height = cast(int)(round(SQRT2^^9)*1.2);
                     auto rt = gs.text_viewer.font.get_size_of_line(cmd_data.command, 
@@ -88,24 +134,18 @@ fix_bottom_line(GlobalState gs)
                     rect.w = rt.w;
                     rect.h = rt.h;
 
-                    if (cmd_key.id == mouse_cmd_id &&
-                            (0 == mouse_out_id || fontsize < 5))
+                    if (cmd_key.id == mouse.cmd_id &&
+                            (0 == mouse.out_id || fontsize < 5))
                     {
                         int ry = cast(int)(gs.mouse_screen_y - mouse_rel_y*rect.h);
-                        y_off = ry - 4;
+                        y_off = ry - 4 + neg_y;
+                        //writefln("on mouse cmd_id=%d ry-4=%d y_off=%s", mouse.cmd_id, ry-4, y_off);
                     }
 
+                    //writefln("CMD id=%s %s, rect.y = %s > %s", cmd_key.id, cmd_data.command, rect.y, gs.screen.h + line_height);
                     if (rect.y >= gs.screen.h + line_height && nav_skip_cmd_id == 0)
                     {
-                        nav_skip_cmd_id = cmd_key.id;
-
-                        if (fontsize < 5)
-                        {
-                            int line_height9 = cast(int)(round(SQRT2^^fontsize)*1.2);
-                            y = y_off - gs.screen.h + line_height9*2 + 8;
-                            //writefln("CMD y = %d", y);
-                            break;
-                        }
+                        cmd_next_stop = true;
                     }
                     if (nav_skip_cmd_id > 0 && (nav_cmd_id > 0 || fontsize < 5) )
                         break;
@@ -120,15 +160,16 @@ fix_bottom_line(GlobalState gs)
                         scope(exit) cursor2.close();
 
                         Dbt key2, data2;
-                        ulong out_id = cmd_key.id == mouse_cmd_id && mouse_out_id > 0 ? mouse_out_id : 1;
+                        ulong out_id = cmd_key.id == mouse.cmd_id && mouse.out_id > 0 ? mouse.out_id : 1;
                         ks = get_key_for_command_out(command_out_key(cwd, cmd_key.id, out_id));
                         //writefln("SET RANGE: %s (cwd=%s, id=%X)", ks, cwd, id);
                         key2 = ks;
                         out_id = find_next_by_key(cursor2, 0, out_id, key2, data2);
 
-                        //writefln("mouse_out_id=%s", mouse_out_id);
+                        //writefln("mouse.out_id=%s", mouse.out_id);
                         if (out_id > 0)
                         {
+                            bool next_stop = false;
                             /* The last output found */
                             do
                             {
@@ -137,13 +178,26 @@ fix_bottom_line(GlobalState gs)
                                 command_out_key cmd_key2;
                                 parse_key_for_command_out(key_string2, cmd_key2);
                                 //writefln("cmd_id=%s, out_id=%s", cmd_key2.cmd_id, cmd_key2.out_id);
-                                if (cmd_key.id != cmd_key2.cmd_id)
+                                if (cmd_key.id != cmd_key2.cmd_id || cwd != cmd_key2.cwd)
                                 {
                                     out_id = 0;
                                     break;
                                 }
                                 else
                                 {
+                                    if (next_stop)
+                                    {
+                                        nav_cmd_id = cmd_key2.cmd_id;
+                                        nav_out_id = cmd_key2.out_id;
+                                        writefln("nav_cmd_id=%s, nav_out_id=%s", nav_cmd_id, nav_out_id);
+                                        next_stop=false;
+
+                                        int line_height9 = cast(int)(round(SQRT2^^fontsize)*1.2);
+                                        y = y_off - gs.screen.h + line_height9*3 + 8;
+                                        //writefln("OUT y = %d", y);
+                                        break;
+                                    }
+
                                     //writefln("out_id=%s", cmd_key2.out_id);
                                     string data_string2 = data2.to!(string);
                                     command_out_data cmd_data2;
@@ -181,37 +235,188 @@ fix_bottom_line(GlobalState gs)
                                     rect.w = rt.w;
                                     rect.h = rt.h;
 
-                                    if (cmd_key2.cmd_id == mouse_cmd_id &&
-                                            cmd_key2.out_id == mouse_out_id)
+                                    if (cmd_key2.cmd_id == mouse.cmd_id &&
+                                            cmd_key2.out_id == mouse.out_id)
                                     {
                                         int ry = cast(int)(gs.mouse_screen_y - mouse_rel_y*rect.h);
-                                        //writefln("y_off change from %s", y_off);
-                                        y_off = ry - 4;
-                                        //writefln("to %s (%s - %s)", y_off, gs.mouse_screen_y, mouse_rel_y*rect.h);
+                                        y_off = ry - 4 + neg_y;
+                                        //writefln("on mouse out mouse.cmd_id=%s, mouse.out_id=%d", mouse.cmd_id, mouse.out_id);
+                                        //writefln("on mouse out ry-4=%d y_off=%s", ry-4, y_off);
                                     }
 
-                                        //writefln("rect.y = %s", rect.y);
+                                    //writefln("OUT cmd_key2.cmd_id=%s, out_id=%s %s, rect.y = %s > %s", cmd_key2.cmd_id, cmd_key2.out_id, cmd_data2.output, rect.y, gs.screen.h + line_height);
                                     if (rect.y > gs.screen.h + line_height)
                                     {
-                                        nav_cmd_id = cmd_key2.cmd_id;
-                                        nav_out_id = cmd_key2.out_id;
-
-                                        int line_height9 = cast(int)(round(SQRT2^^fontsize)*1.2);
-                                        y = y_off - gs.screen.h + line_height9*2 + 8;
-                                        //writefln("OUT y = %d", y);
-                                        break;
+                                        next_stop = true;
+                                        cmd_next_stop = true;
                                     }
 
                                     y_off += line_height*lines;
                                 }
                             }
                             while (cursor2.get(&key2, &data2, DB_NEXT) == 0);
+
+                            if (next_stop)
+                            {
+                                nav_cmd_id = cmd_key.id;
+                                nav_out_id = 0;
+
+                                int line_height9 = cast(int)(round(SQRT2^^fontsize)*1.2);
+                                y = y_off - gs.screen.h + line_height9*3 + 8;
+                                //writefln("OUT y = %d", y);
+                            }
                         }
                     }
                 }
             }
             while (cursor.get(&key, &data, DB_NEXT) == 0);
+
+            if (cmd_next_stop)
+            {
+                nav_skip_cmd_id = 0;
+                if (fontsize < 5)
+                {
+                    int line_height9 = cast(int)(round(SQRT2^^fontsize)*1.2);
+                    y = y_off - gs.screen.h + line_height9*3 + 8;
+                    //writefln("CMD y = %d", y);
+                }
+            }
         }
+        neg_y = 0;
+    }
+}
+
+package void
+selection_to_buffer(GlobalState gs)
+{
+    with (gs.command_line)
+    {
+        if (start_selection.cmd_id == 0 || end_selection.cmd_id == 0)
+            return;
+
+        string selection = "";
+
+        cwd = gs.full_current_path;
+
+        Dbc cursor = gs.db_commands.cursor(null, 0);
+        scope(exit) cursor.close();
+
+        Dbt key, data;
+
+        ulong id = start_selection.cmd_id;
+        string ks = get_key_for_command(command_key(cwd, id));
+        //writefln("SET RANGE: %s (cwd=%s, id=%d)", ks, cwd, id);
+        key = ks;
+        id = find_next_by_key(cursor, 0, id, key, data);
+
+        //writefln("mouse.cmd_id=%s", mouse.cmd_id);
+        if (id != 0)
+        {
+            bool cmd_next_stop;
+            /* The bottom command found */
+            long y_off = neg_y;
+            //writefln("y=%s, y_off=%s", y, y_off);
+            do
+            {
+                string key_string = key.to!(string);
+                command_key cmd_key;
+                parse_key_for_command(key_string, cmd_key);
+                if (cwd != cmd_key.cwd)
+                {
+                    id = 0;
+                    break;
+                }
+                else
+                {
+                    //writefln("cmd_id=%s", id);
+                    id = cmd_key.id;
+                    string data_string = data.to!(string);
+                    command_data cmd_data;
+                    parse_data_for_command(data_string, cmd_data);
+
+                    ssize_t start_pos, end_pos;
+                    get_start_end_pos(cmd_key.id,
+                            0,
+                            start_selection, 
+                            end_selection,
+                            start_pos, end_pos);
+                    if (start_pos >= 0)
+                    {
+                        //writefln("start_pos=%s end_pos=%s", start_pos, end_pos);
+                        if (start_pos == 0)
+                            selection ~= "$ ";
+                        if (end_pos+1 >= cmd_data.command.length) end_pos = cmd_data.command.length-1;
+                        selection ~= cmd_data.command[start_pos..end_pos+1];
+                        if (end_pos+1 == cmd_data.command.length)
+                            selection ~= "\n";
+                    }
+                    else if ( !(start_selection.cmd_id == cmd_key.id && start_selection.out_id > 0) )
+                    {
+                        break;
+                    }
+                
+                    /* Try to find last output for command */
+                    Dbc cursor2 = gs.db_command_output.cursor(null, 0);
+                    scope(exit) cursor2.close();
+
+                    Dbt key2, data2;
+                    ulong out_id = cmd_key.id == start_selection.cmd_id && 
+                        start_selection.out_id != 0 ? start_selection.out_id : 1;
+                    ks = get_key_for_command_out(command_out_key(cwd, cmd_key.id, out_id));
+                    //writefln("SET RANGE: %s (cwd=%s, key_id=%d, out_id=%s)", ks, cwd, cmd_key.id, out_id);
+                    key2 = ks;
+                    out_id = find_next_by_key(cursor2, 0, out_id, key2, data2);
+
+                    //writefln("mouse.out_id=%s", mouse.out_id);
+                    if (out_id > 0)
+                    {
+                        do
+                        {
+                            /* Loop through all outputs */
+                            string key_string2 = key2.to!(string);
+                            command_out_key cmd_key2;
+                            parse_key_for_command_out(key_string2, cmd_key2);
+                            //writefln("cmd_id=%s, out_id=%s", cmd_key2.cmd_id, cmd_key2.out_id);
+                            if (cmd_key.id != cmd_key2.cmd_id || cwd != cmd_key2.cwd)
+                            {
+                                out_id = 0;
+                                break;
+                            }
+                            else
+                            {
+                                //writefln("out_id=%s", cmd_key2.out_id);
+                                string data_string2 = data2.to!(string);
+                                command_out_data cmd_data2;
+                                parse_data_for_command_out(data_string2, cmd_data2);
+
+                                get_start_end_pos(cmd_key2.cmd_id,
+                                        cmd_key2.out_id,
+                                        start_selection, 
+                                        end_selection,
+                                        start_pos, end_pos);
+
+                                if (start_pos < 0) break;
+                                if (end_pos+1 >= cmd_data2.output.length) end_pos = cmd_data2.output.length-1;
+
+                                final switch(cmd_data2.vers)
+                                {
+                                    case CommandsOutVersion.Simple:
+                                        selection ~= cmd_data2.output[start_pos..end_pos+1];
+                                        break;
+                                    case CommandsOutVersion.Screen:
+                                        selection ~= to!string(cmd_data2.screen[start_pos..end_pos+1]);
+                                        break;
+                                }
+                            }
+                        }
+                        while (cursor2.get(&key2, &data2, DB_NEXT) == 0);
+                    }
+                }
+            }
+            while (cursor.get(&key, &data, DB_NEXT) == 0);
+        }
+        //writefln("SELECTION:\n%s", selection);
+        SDL_SetClipboardText(selection.toStringz());
     }
 }
 
@@ -371,7 +576,7 @@ string autocomplete(GlobalState gs, string command, bool is_command, StringStatu
         dir = dir[0..dir.lastIndexOf("/")+1];
 
         string[] files = [];
-        writefln("dir = %s, is null = %s, %s", dir, dir is null, dir.length);
+        //writefln("dir = %s, is null = %s, %s", dir, dir is null, dir.length);
         if (dir !is null)
         {
             try{
@@ -548,6 +753,54 @@ string autocomplete(GlobalState gs, string command)
     return prev_result;
 }
 
+private void
+get_start_end_pos(in ulong cmd_id,
+        in ulong out_id,
+        in CmdOutPos start_selection, 
+        in CmdOutPos end_selection,
+        out ssize_t start_pos, out ssize_t end_pos)
+{
+    if (cmd_id < start_selection.cmd_id ||
+            cmd_id == start_selection.cmd_id &&
+            out_id < start_selection.out_id ||
+            cmd_id > end_selection.cmd_id ||
+            cmd_id == end_selection.cmd_id &&
+            out_id > end_selection.out_id)
+    {
+        start_pos = -1;
+        end_pos = -1;
+        return;
+    }
+
+    if (cmd_id > start_selection.cmd_id ||
+            cmd_id == start_selection.cmd_id &&
+            out_id > start_selection.out_id)
+    {
+        start_pos = 0;
+    }
+
+    if ( cmd_id == start_selection.cmd_id &&
+            out_id == start_selection.out_id)
+    {
+        start_pos = start_selection.pos;
+    }
+
+    if (cmd_id < end_selection.cmd_id ||
+            cmd_id == end_selection.cmd_id &&
+            out_id< end_selection.cmd_id)
+    {
+        end_pos = ssize_t.max;
+    }
+
+    if ( cmd_id == end_selection.cmd_id &&
+            out_id == end_selection.out_id)
+    {
+        end_pos = end_selection.pos;
+        if (end_pos == -1)
+            end_pos = ssize_t.max;
+    }
+}
+
 void
 draw_command_line(GlobalState gs)
 {
@@ -584,7 +837,7 @@ redraw:
             /* If terminal */
             if (gs.command_line.terminal)
             {
-                if (font_changed)
+                if (font_changed || neg_y < 0)
                 {
                     fix_bottom_line(gs);
                     font_changed = false;
@@ -609,6 +862,7 @@ redraw:
 
                     //writefln("nav_skip_cmd_id=%s", nav_skip_cmd_id);
                     Dbt key, data;
+                    //writefln("Find prev nav_skip_cmd_id=%d", nav_skip_cmd_id);
                     ulong id = find_prev_command(cursor, cwd, nav_skip_cmd_id,
                             key, data);
 
@@ -616,7 +870,7 @@ redraw:
                     {
                         /* The bottom command found */
                         int line_height9 = cast(int)(round(SQRT2^^fontsize)*1.2);
-                        ulong y_off = y + gs.screen.h - line_height9*3 - 8;
+                        long y_off = y + gs.screen.h - line_height9*3 - 8;
                         //writefln("y=%s, y_off=%s", y, y_off);
                         do
                         {
@@ -673,9 +927,11 @@ redraw:
 
                                                 auto rect = SDL_Rect();
                                                 SDL_Rect rt;
+                                                Texture_Tick *tt;
                                                 final switch(cmd_data2.vers)
                                                 {
                                                     case CommandsOutVersion.Simple:
+                                                        //writefln("out_id=%s  cmd_data2.output=%s", cmd_key2.out_id, cmd_data2.output);
                                                         rt = gs.text_viewer.font.get_size_of_line(cmd_data2.output, 
                                                                 fontsize, gs.screen.w-80, line_height, color);
 
@@ -691,9 +947,17 @@ redraw:
 
                                                         if (rect.y < gs.screen.h && rect.y+rect.h > 0)
                                                         {
-                                                            auto tt = gs.text_viewer.font.get_line_from_cache(cmd_data2.output, 
+                                                            /* Selection */
+                                                            ssize_t start_pos, end_pos;
+                                                            get_start_end_pos(cmd_key2.cmd_id,
+                                                                    cmd_key2.out_id,
+                                                                    start_selection, 
+                                                                    end_selection,
+                                                                    start_pos, end_pos);
+
+                                                            tt = gs.text_viewer.font.get_line_from_cache(cmd_data2.output, 
                                                                     fontsize, gs.screen.w-80, line_height, color,
-                                                                    cmd_data2.attrs);
+                                                                    cmd_data2.attrs, start_pos, end_pos);
                                                             if (!tt && !tt.texture)
                                                             {
                                                                 throw new Exception("Can't create text_surface: "~
@@ -767,10 +1031,18 @@ redraw:
 
                                                         if (rect.y < gs.screen.h && rect.y+rect.h > 0)
                                                         {
-                                                            auto tt = gs.text_viewer.font.get_line_from_cache(cmd_data2.screen, 
+                                                            /* Selection */
+                                                            ssize_t start_pos, end_pos;
+                                                            get_start_end_pos(cmd_key2.cmd_id,
+                                                                    cmd_key2.out_id,
+                                                                    start_selection, 
+                                                                    end_selection,
+                                                                    start_pos, end_pos);
+
+                                                            tt = gs.text_viewer.font.get_line_from_cache(cmd_data2.screen, 
                                                                     cmd_data2.cols, cmd_data2.rows,
                                                                     fontsize, line_height, color,
-                                                                    cmd_data2.scr_attrs);
+                                                                    cmd_data2.scr_attrs, start_pos, end_pos);
                                                             if (!tt && !tt.texture)
                                                             {
                                                                 throw new Exception("Can't create text_surface: "~
@@ -833,13 +1105,16 @@ redraw:
                                                 first_out = false;
 
                                                 if (rect.y <= gs.mouse_screen_y && 
-                                                        rect.y+rect.h-line_height >= gs.mouse_screen_y)
+                                                        rect.y+rect.h-line_height >= gs.mouse_screen_y && neg_y >= 0)
                                                 {
-                                                    mouse_cmd_id = cmd_key2.cmd_id;
-                                                    mouse_out_id = cmd_key2.out_id;
+                                                    mouse.cmd_id = cmd_key2.cmd_id;
+                                                    mouse.out_id = cmd_key2.out_id;
+                                                    mouse.pos = get_position_by_chars(
+                                                            gs.mouse_screen_x - rect.x,
+                                                            gs.mouse_screen_y - rect.y, tt.chars);
                                                     mouse_rel_y = (cast(double)gs.mouse_screen_y-rect.y)/rect.h;
-                                                    //writefln("OUT: mouse_cmd_id=%s, mouse_out_id=%s, out=%s",
-                                                    //        mouse_cmd_id, mouse_out_id, cmd_data2.output);
+                                                    //writefln("OUT: mouse.cmd_id=%s, mouse.out_id=%s, gs.mouse_screen_y=%s rect.y=%s rect.h=%s, mouse_rel_y=%s",
+                                                    //        mouse.cmd_id, mouse.out_id, gs.mouse_screen_y, rect.y, rect.h, mouse_rel_y);
                                                 }
 
                                                 if (rect.y > gs.screen.h)
@@ -849,7 +1124,7 @@ redraw:
                                                     y -= rt.h - line_height;
                                                     nav_out_id = cmd_key2.out_id;
                                                     nav_cmd_id = cmd_key.id;
-                                                    writefln("OUT UP");
+                                                    //writefln("OUT UP");
                                                 }
 
                                                 //writefln("OUT: y=%s, first_cmd_or_out=%s, nav_out_id=%s, rect.y + rect.h=%s, gs.screen.h=%s",
@@ -950,11 +1225,20 @@ redraw:
                                 rect.w = rt.w;
                                 rect.h = rt.h;
 
+                                Texture_Tick *tt;
                                 if (rect.y < gs.screen.h && rect.y+rect.h > 0)
                                 {
                                     /* Draw command */
-                                    auto tt = gs.text_viewer.font.get_line_from_cache(cmd_data.command, 
-                                            9, gs.screen.w-80, line_height, SDL_Color(0xFF,0x00,0xFF,0xFF));
+                                    /* Selection */
+                                    ssize_t start_pos, end_pos;
+                                    get_start_end_pos(cmd_key.id,
+                                            0,
+                                            start_selection, 
+                                            end_selection,
+                                            start_pos, end_pos);
+                                    tt = gs.text_viewer.font.get_line_from_cache(cmd_data.command, 
+                                            9, gs.screen.w-80, line_height, SDL_Color(0xFF,0x00,0xFF,0xFF),
+                                            null, start_pos, end_pos);
                                     if (!tt && !tt.texture)
                                     {
                                         throw new Exception("Can't create text_surface: "~
@@ -1147,13 +1431,16 @@ redraw:
                                 }
 
                                 if (rect.y <= gs.mouse_screen_y && 
-                                        rect.y+rect.h >= gs.mouse_screen_y)
+                                        rect.y+rect.h >= gs.mouse_screen_y && neg_y >= 0)
                                 {
-                                    mouse_cmd_id = cmd_key.id;
-                                    mouse_out_id = 0;
+                                    mouse.cmd_id = cmd_key.id;
+                                    mouse.out_id = 0;
+                                    mouse.pos = get_position_by_chars(
+                                            gs.mouse_screen_x - rect.x,
+                                            gs.mouse_screen_y - rect.y, tt.chars);
                                     mouse_rel_y = (cast(double)gs.mouse_screen_y-rect.y)/rect.h;
-                                    //writefln("CMD: mouse_cmd_id=%s, mouse_out_id=%s, command=%s",
-                                    //        mouse_cmd_id, mouse_out_id, cmd_data.command);
+                                    //writefln("CMD: mouse.cmd_id=%s, mouse.out_id=%s, command=%s",
+                                    //        mouse.cmd_id, mouse.out_id, cmd_data.command);
                                 }
 
                                 if (rect.y > gs.screen.h)
@@ -1190,7 +1477,7 @@ redraw:
 
             if (gs.command_line.enter)
             {
-                ulong y_off;
+                long y_off;
 
                 string prompt = "$ ";
                 int line_height = cast(int)(round(SQRT2^^9)*1.2);

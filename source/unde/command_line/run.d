@@ -589,6 +589,12 @@ process_escape_sequences(CMDGlobalState cgs,
                                         }
                                         else
                                         {
+                                            {
+                                                if (y < 0) y = 0;
+                                                if (y >= rows) y = rows-1;
+                                                if (x < 0) x = 0;
+                                                if (x >= cols) y = cols-1;
+                                            }
                                             buffer[y*cols+x] = to!dchar(prebuf[i]);
                                             alt_attrs[y*cols+x] = alt_cur_attr;
                                             x++;
@@ -2027,21 +2033,35 @@ cwd, id
         //writefln("last_id=%s (%%1000=%s), new_id=%s", id, id%1000, new_id);
     }
 
-    if (command[0] != '*' && command[0] != '+')
+    if (command[0] != '*')
     {
         ulong replace_id = find_command_in_cwd(cgs, cwd, command);
 
-        delete_command_out(cgs, cwd, replace_id);
+        Dbt key2, data2;
+        string ks2 = get_key_for_command(command_key(cwd, replace_id));
+        key2 = ks2;
 
-        cgs.commit;
-        cgs.recommit;
+        auto res = cgs.db_commands.get(cgs.txn, &key2, &data2);
+        if (res == 0)
+        {
+            string data2_string = data2.to!(string);
+            command_data cmd_data2;
+            parse_data_for_command(data2_string, cmd_data2);
+            if (cmd_data2.end > 0)
+            {
+                delete_command_out(cgs, cwd, replace_id);
 
-        string ks = get_key_for_command(command_key(cwd, replace_id));
-        Dbt key = ks;
-        auto res = cgs.db_commands.del(cgs.txn, &key);
+                cgs.commit;
+                cgs.recommit;
 
-        cgs.commit;
-        cgs.recommit;
+                string ks = get_key_for_command(command_key(cwd, replace_id));
+                Dbt key = ks;
+                res = cgs.db_commands.del(cgs.txn, &key);
+
+                cgs.commit;
+                cgs.recommit;
+            }
+        }
     }
 
     tid.send(thisTid, "command_id", new_id);
@@ -2101,7 +2121,8 @@ cwd, id
             }
             else
             {
-                throw new Exception(format("Command with id %d not found", id));
+                writefln("Command with id %d not found", id);
+                return -1;
             }
 
             cgs.commit;

@@ -446,6 +446,11 @@ struct Text_Viewer_State{
     long last_redraw;
     SDL_Texture *texture;
 
+    long mouse_offset;
+    long start_selection;
+    long end_selection;
+    long first_click;
+
     Font font;
 }
 
@@ -529,6 +534,8 @@ struct Command_Line_State{
     void delegate() on_click;
 
     bool ctrl_mode;
+    bool search_mode;
+    string search;
 
     winsize ws;
 }

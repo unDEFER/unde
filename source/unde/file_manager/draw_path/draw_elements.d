@@ -535,7 +535,16 @@ draw_direntry_name(GlobalState gs, string name,
                         to!string(TTF_GetError()));
             }
 
+            auto ttb = gs.text_viewer.font.get_line_from_cache(name, 
+                    f, rnvnd.sdl_rect.w, line_height, SDL_Color(0, 0, 0, 255));
+            if (!tt && !tt.texture)
+            {
+                throw new Exception("Can't create text_surface: "~
+                        to!string(TTF_GetError()));
+            }
+
             auto text_texture = tt.texture;
+            auto text_texture_black = ttb.texture;
 
             /* EN: Rerender if it's too wide
                RU: Перерендериваем меньшим шрифтом, если
@@ -562,17 +571,28 @@ draw_direntry_name(GlobalState gs, string name,
                     (rnvnd.sdl_rect.w - tt.w)/2);
             sdl_rect.y = cast(int)(rnvnd.sdl_rect.y +
                     (rnvnd.sdl_rect.h - tt.h)/2);
-            sdl_rect.w = tt.w;
-            sdl_rect.h = tt.h;
+            sdl_rect.w = tt.w+1;
+            sdl_rect.h = tt.h+1;
 
             /* EN: Draw
                RU: Рисуем */
-            auto r = SDL_RenderCopyEx(gs.renderer, text_texture, null, &sdl_rect, 0,
+            auto r = SDL_RenderCopyEx(gs.renderer, text_texture_black, null, &sdl_rect, 0,
                         null, SDL_FLIP_NONE);
             if (r < 0)
             {
                 writefln( "draw_direntry_name(): Error while render copy: %s", SDL_GetError().to!string() );
             }
+
+            sdl_rect.x -= 1;
+            sdl_rect.y -= 1;
+
+            r = SDL_RenderCopyEx(gs.renderer, text_texture, null, &sdl_rect, 0,
+                        null, SDL_FLIP_NONE);
+            if (r < 0)
+            {
+                writefln( "draw_direntry_name(): Error while render copy: %s", SDL_GetError().to!string() );
+            }
+
 
         }
     } catch (Exception e)

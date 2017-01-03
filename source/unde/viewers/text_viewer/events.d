@@ -10,6 +10,7 @@ import derelict.sdl2.sdl;
 
 import std.stdio;
 import std.string;
+import std.math;
 
 private
 void process_key_down(GlobalState gs, SDL_Scancode scancode)
@@ -108,6 +109,22 @@ void process_key_down(GlobalState gs, SDL_Scancode scancode)
             }
             break;
 
+        case SDL_SCANCODE_PAGEUP:
+            with (gs.text_viewer)
+            {
+                int line_height = cast(int)(round(SQRT2^^9)*1.2);
+                y += gs.screen.h - 2*line_height;
+            }
+            break;
+
+        case SDL_SCANCODE_PAGEDOWN:
+            with (gs.text_viewer)
+            {
+                int line_height = cast(int)(round(SQRT2^^9)*1.2);
+                y -= gs.screen.h - 2*line_height;
+            }
+            break;
+
         case SDL_SCANCODE_A:
             gs.selection_hash = null;
             calculate_selection_sub(gs);
@@ -166,9 +183,25 @@ void process_event(GlobalState gs, ref SDL_Event event)
             {
                 with (gs.text_viewer)
                 {
-                    if (!wraplines)
-                        x += event.motion.xrel;
-                    y += event.motion.yrel;
+                    if (gs.command_line.ctrl_mode ^ gs.command_line.ctrl)
+                    {
+                        if (mouse_offset > first_click)
+                        {
+                            start_selection = first_click;
+                            end_selection = mouse_offset;
+                        }
+                        else
+                        {
+                            start_selection = mouse_offset;
+                            end_selection = first_click;
+                        }
+                    }
+                    else
+                    {
+                        if (!wraplines)
+                            x += event.motion.xrel;
+                        y += event.motion.yrel;
+                    }
                     last_redraw = 0;
                 }
             }
@@ -183,6 +216,13 @@ void process_event(GlobalState gs, ref SDL_Event event)
                 case SDL_BUTTON_LEFT:
                     gs.mouse_buttons |= unDE_MouseButtons.Left;
                     gs.moved_while_click = 0;
+                    with (gs.text_viewer)
+                    {
+                        if (gs.command_line.ctrl_mode ^ gs.command_line.ctrl)
+                        {
+                            first_click = mouse_offset;
+                        }
+                    }
                     break;
                 case SDL_BUTTON_MIDDLE:
                     gs.mouse_buttons |= unDE_MouseButtons.Middle;
@@ -199,18 +239,51 @@ void process_event(GlobalState gs, ref SDL_Event event)
             switch (event.button.button)
             {
                 case SDL_BUTTON_LEFT:
-                    gs.mouse_buttons &= ~unDE_MouseButtons.Left;
-                    if (!gs.moved_while_click)
+                    with(gs.text_viewer)
                     {
-                        if (SDL_GetTicks() - gs.last_left_click < DOUBLE_DELAY)
+                        gs.mouse_buttons &= ~unDE_MouseButtons.Left;
+                        if (!gs.moved_while_click)
                         {
-                            gs.state = State.FileManager;
-                            gs.dirty = true;
+                            if (SDL_GetTicks() - gs.last_left_click < DOUBLE_DELAY)
+                            {
+                                gs.state = State.FileManager;
+                                gs.dirty = true;
+                            }
+                            else if (gs.command_line.shift)
+                            {
+                                if (mouse_offset > first_click)
+                                {
+                                    end_selection = mouse_offset;
+                                }
+                                else
+                                {
+                                    start_selection = mouse_offset;
+                                }
+                                selection_to_buffer(gs);
+                            }
+                            else if (gs.command_line.ctrl_mode ^ gs.command_line.ctrl)
+                            {
+                                start_selection = -1;
+                                end_selection = -1;
+                                last_redraw = 0;
+                            }
+                            gs.last_left_click = SDL_GetTicks();
                         }
-                        else
+                        else if (gs.command_line.ctrl_mode ^ gs.command_line.ctrl)
                         {
+                            if (mouse_offset > first_click)
+                            {
+                                start_selection = first_click;
+                                end_selection = mouse_offset;
+                            }
+                            else
+                            {
+                                start_selection = mouse_offset;
+                                end_selection = first_click;
+                            }
+                            last_redraw = 0;
+                            selection_to_buffer(gs);
                         }
-                        gs.last_left_click = SDL_GetTicks();
                     }
                     break;
                 case SDL_BUTTON_MIDDLE:
@@ -238,19 +311,17 @@ void process_event(GlobalState gs, ref SDL_Event event)
         case SDL_MOUSEWHEEL:
             with (gs.text_viewer)
             {
-                while (event.wheel.y > 0)
+                if (gs.command_line.ctrl_mode ^ gs.command_line.ctrl)
                 {
-                    fontsize++;
-                    event.wheel.y--;
+                    y += event.wheel.y * 40;
                 }
-                while (event.wheel.y < 0)
+                else
                 {
-                    fontsize--;
-                    event.wheel.y++;
-                }
+                    fontsize += event.wheel.y;
 
-                if (fontsize < 5) fontsize = 5;
-                if (fontsize > 15) fontsize = 15;
+                    if (fontsize < 5) fontsize = 5;
+                    if (fontsize > 15) fontsize = 15;
+                }
                 last_redraw = 0;
             }
             break;

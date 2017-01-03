@@ -4,6 +4,7 @@ import unde.global_state;
 import unde.path_mnt;
 import unde.lib;
 import unde.slash;
+import unde.command_line.lib;
 
 import berkeleydb.all;
 
@@ -109,6 +110,28 @@ measure_lines(GlobalState gs, string text,
     return lines;
 }
 
+package void
+selection_to_buffer(GlobalState gs)
+{
+    File file;
+
+    with(gs.text_viewer)
+    {
+        try {
+            file = File(path);
+        }
+        catch (Exception exp)
+        {
+            return;
+        }
+
+        file.seek(start_selection);
+        string selection = file.rawRead(new char[end_selection-start_selection+1]).idup();
+
+        SDL_SetClipboardText(selection.toStringz());
+    }
+}
+
 void
 draw_text(GlobalState gs)
 {
@@ -203,6 +226,7 @@ draw_text(GlobalState gs)
 
                 int line_y = y;
                 int line_x = x;
+                auto offset = rectsize.offset;
                 foreach(line; file.byLine())
                 {
                     if (line_y > gs.screen.h)
@@ -210,8 +234,35 @@ draw_text(GlobalState gs)
                         break;
                     }
 
+                    ssize_t from, to;
+                    if (offset + line.length < start_selection ||
+                            offset > end_selection)
+                    {
+                        from = -1;
+                        to = -1;
+                    }
+                    else
+                    {
+                        if (start_selection > offset)
+                        {
+                            from = start_selection - offset;
+                        }
+                        if (offset > start_selection)
+                        {
+                            from = 0;
+                        }
+                        if (offset < end_selection)
+                        {
+                            to = end_selection - offset;
+                        }
+                        if ( offset + line.length < end_selection )
+                        {
+                            to = line.length;
+                        }
+                    }
+
                     auto tt = gs.text_viewer.font.get_line_from_cache(line.idup(),
-                            fontsize, wraplines?gs.screen.w:0, line_height, color);
+                            fontsize, wraplines?gs.screen.w:0, line_height, color, null, from, to);
 
                     auto dst = SDL_Rect(line_x, line_y, tt.w, tt.h);
 
@@ -220,6 +271,13 @@ draw_text(GlobalState gs)
                     if (r < 0)
                     {
                         writefln( "draw_text(): Error while render copy: %s", fromStringz(SDL_GetError()) );
+                    }
+
+                    if (gs.mouse_screen_y >= dst.y && gs.mouse_screen_y <= dst.y+dst.h)
+                    {
+                        mouse_offset = offset + get_position_by_chars(
+                                gs.mouse_screen_x - dst.x,
+                                gs.mouse_screen_y - dst.y, tt.chars);
                     }
 
                     if (line_y + tt.h < 0)
@@ -231,6 +289,7 @@ draw_text(GlobalState gs)
 
                     lines += tt.h/line_height;
                     line_y += tt.h;
+                    offset = file.tell;
                 }
 
                 if (rectsize_changed)

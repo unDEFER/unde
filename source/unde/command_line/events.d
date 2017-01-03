@@ -67,9 +67,18 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             {
                 if (enter)
                 {
-                    SDL_StopTextInput();
-                    writefln("Command line close");
-                    gs.command_line.enter = false;
+                    if (search_mode)
+                    {
+                        search_mode = false;
+                        search = "";
+                        pos = command.length;
+                    }
+                    else
+                    {
+                        SDL_StopTextInput();
+                        writefln("Command line close");
+                        enter = false;
+                    }
                 }
                 else if (command_in_focus_id > 0)
                 {
@@ -89,8 +98,16 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             {
                 if (enter)
                 {
-                    if (pos > 0)
-                        pos -= command.strideBack(pos);
+                    if (search_mode && hist_pos == 0)
+                    {
+                        if (pos > 0)
+                            pos -= search.strideBack(pos);
+                    }
+                    else
+                    {
+                        if (pos > 0)
+                            pos -= command.strideBack(pos);
+                    }
                 }
                 else if (command_in_focus_id > 0)
                 {
@@ -105,8 +122,16 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             {
                 if (enter)
                 {
-                    if (pos < command.length)
-                        pos += command.stride(pos);
+                    if (search_mode && hist_pos == 0)
+                    {
+                        if (pos < search.length)
+                            pos += search.stride(pos);
+                    }
+                    else
+                    {
+                        if (pos < command.length)
+                            pos += command.stride(pos);
+                    }
                 }
                 else if (command_in_focus_id > 0)
                 {
@@ -151,11 +176,23 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             {
                 if (enter)
                 {
-                    if ( command > "" && pos > 0 )
+                    if (search_mode && hist_pos == 0)
                     {
-                        int sb = command.strideBack(pos);
-                        command = (command[0..pos-sb] ~ command[pos..$]).idup();
-                        pos -= sb;
+                        if ( search > "" && pos > 0 )
+                        {
+                            int sb = search.strideBack(pos);
+                            search = (search[0..pos-sb] ~ search[pos..$]).idup();
+                            pos -= sb;
+                        }
+                    }
+                    else
+                    {
+                        if ( command > "" && pos > 0 )
+                        {
+                            int sb = command.strideBack(pos);
+                            command = (command[0..pos-sb] ~ command[pos..$]).idup();
+                            pos -= sb;
+                        }
                     }
                 }
                 else if (command_in_focus_id > 0)
@@ -386,6 +423,18 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
             }
             break;
 
+        case SDL_SCANCODE_R:
+            with (gs.command_line)
+            {
+                if (enter && ctrl)
+                {
+                    search_mode = true;
+                    pos = 0;
+                    hist_pos = 0;
+                }
+            }
+            break;
+
         case SDL_SCANCODE_PAGEUP:
             with (gs.command_line)
             {
@@ -453,13 +502,24 @@ process_key_down(GlobalState gs, SDL_Scancode scancode)
                 {
                     if (shift || ctrl)
                     {
-                        command = (command[0..pos] ~
-                                "\n" ~
-                                command[pos..$]).idup();
+                        if (search_mode && hist_pos == 0)
+                        {
+                            search = (search[0..pos] ~
+                                    "\n" ~
+                                    search[pos..$]).idup();
+                        }
+                        else
+                        {
+                            command = (command[0..pos] ~
+                                    "\n" ~
+                                    command[pos..$]).idup();
+                        }
                         pos++;
                     }
                     else
                     {
+                        search_mode = false;
+                        search = "";
                         run_command(gs, command);
                         hist_cmd_id = 0;
                         command = "";
@@ -530,9 +590,18 @@ process_event(GlobalState gs, ref SDL_Event event)
                     }
                     just_started_input = false;
 
-                    command = (command[0..pos] ~
-                        input ~
-                        command[pos..$]).idup();
+                    if (search_mode && hist_pos == 0)
+                    {
+                        search = (search[0..pos] ~
+                            input ~
+                            search[pos..$]).idup();
+                    }
+                    else
+                    {
+                        command = (command[0..pos] ~
+                            input ~
+                            command[pos..$]).idup();
+                    }
                     pos += input.length;
                 }
                 else if (command_in_focus_id > 0)
@@ -647,7 +716,6 @@ process_event(GlobalState gs, ref SDL_Event event)
                             {
                                 if (shift)
                                 {
-                                    writefln("Shift!");
                                     if (mouse > first_click)
                                     {
                                         end_selection = mouse;

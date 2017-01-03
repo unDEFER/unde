@@ -30,7 +30,7 @@ import std.algorithm.sorting;
 import core.sys.posix.signal;
 import core.sys.posix.stdlib;
 
-private ssize_t
+public ssize_t
 get_position_by_chars(
         int x, int y, SDL_Rect[] chars, ssize_t p=0)
 {
@@ -109,6 +109,10 @@ fix_bottom_line(GlobalState gs)
                     string data_string = data.to!(string);
                     command_data cmd_data;
                     parse_data_for_command(data_string, cmd_data);
+
+                    if (search_mode && cmd_data.command.indexOf(search) < 0)
+                        continue;
+
                     if (cmd_next_stop)
                     {
                         cmd_next_stop = false;
@@ -154,7 +158,7 @@ fix_bottom_line(GlobalState gs)
                     y_off += line_height*lines;
 
                     /* Loop through all commands */
-                    if (fontsize >= 5)
+                    if (fontsize >= 5 && !search_mode)
                     {
                         /* Try to find last output for command */
                         Dbc cursor2 = gs.db_command_output.cursor(null, 0);
@@ -190,7 +194,7 @@ fix_bottom_line(GlobalState gs)
                                     {
                                         nav_cmd_id = cmd_key2.cmd_id;
                                         nav_out_id = cmd_key2.out_id;
-                                        writefln("nav_cmd_id=%s, nav_out_id=%s", nav_cmd_id, nav_out_id);
+                                        //writefln("nav_cmd_id=%s, nav_out_id=%s", nav_cmd_id, nav_out_id);
                                         next_stop=false;
 
                                         int line_height9 = cast(int)(round(SQRT2^^fontsize)*1.2);
@@ -889,7 +893,7 @@ redraw:
                             else
                             {
                     //writefln("cmd_id=%s found", cmd_key.id);
-                                if (fontsize >= 5)
+                                if (fontsize >= 5 && !search_mode)
                                 {
                                     /* Try to find last output for command */
                                     Dbc cursor2 = gs.db_command_output.cursor(null, 0);
@@ -1153,6 +1157,9 @@ redraw:
                                 string data_string = data.to!(string);
                                 command_data cmd_data;
                                 parse_data_for_command(data_string, cmd_data);
+
+                                if (search_mode && cmd_data.command.indexOf(search) < 0)
+                                    continue;
 
                                 int line_height = cast(int)(round(SQRT2^^9)*1.2);
                                 auto rt = gs.text_viewer.font.get_size_of_line(cmd_data.command, 
@@ -1484,6 +1491,8 @@ redraw:
                 long y_off;
 
                 string prompt = "$ ";
+                if (search_mode && hist_pos == 0)
+                    prompt ="<search> ";
                 int line_height = cast(int)(round(SQRT2^^9)*1.2);
                 auto ptt = gs.text_viewer.font.get_line_from_cache(prompt, 
                         9, gs.screen.w-80, line_height, SDL_Color(0x00,0xFF,0x00,0xFF));
@@ -1493,7 +1502,11 @@ redraw:
                             to!string(TTF_GetError()));
                 }
 
-                auto tt = gs.text_viewer.font.get_line_from_cache(command, 
+                string str = command;
+                if (search_mode && hist_pos == 0)
+                    str = search;
+
+                auto tt = gs.text_viewer.font.get_line_from_cache(str, 
                         9, gs.screen.w-80-ptt.w, line_height, SDL_Color(0xFF, 0xFF, 0xFF, 0xFF));
                 if (!tt && !tt.texture)
                 {
@@ -1501,23 +1514,26 @@ redraw:
                             to!string(TTF_GetError()));
                 }
 
-                complete = autocomplete(gs, command[0..pos]);
-
                 Texture_Tick *ctt;
-                if (complete.length > 1)
+                if (!search_mode || hist_pos != 0)
                 {
-                    int linewidth = gs.screen.w-80-ptt.w-tt.w;
-                    if (complete[0] == '2')
-                    {
-                        linewidth = gs.screen.w-80;
-                    }
+                    complete = autocomplete(gs, command[0..pos]);
 
-                    ctt = gs.text_viewer.font.get_line_from_cache(complete[1..$], 
-                            9, linewidth, line_height, SDL_Color(0xFF, 0x96, 0x00, 0xFF));
-                    if (!ctt && !ctt.texture)
+                    if (complete.length > 1)
                     {
-                        throw new Exception("Can't create text_surface: "~
-                                to!string(TTF_GetError()));
+                        int linewidth = gs.screen.w-80-ptt.w-tt.w;
+                        if (complete[0] == '2')
+                        {
+                            linewidth = gs.screen.w-80;
+                        }
+
+                        ctt = gs.text_viewer.font.get_line_from_cache(complete[1..$], 
+                                9, linewidth, line_height, SDL_Color(0xFF, 0x96, 0x00, 0xFF));
+                        if (!ctt && !ctt.texture)
+                        {
+                            throw new Exception("Can't create text_surface: "~
+                                    to!string(TTF_GetError()));
+                        }
                     }
                 }
 
@@ -1580,7 +1596,7 @@ redraw:
 
                 /* EN: Render autocomplete to screen
                    RU: Рендерим автодополнение на экран */
-                if (complete.length > 1)
+                if ((!search_mode || hist_pos != 0) && complete.length > 1)
                 {
                     rect = SDL_Rect();
                     if (complete[0] == '1' && pos == command.length)
@@ -1608,33 +1624,35 @@ redraw:
                 }
 
                 /* Render cursor */
-                //if (pos >= tt.chars.length) pos = tt.chars.length - 1;
-                rect = tt.chars[pos];
-                rect.x += 40+ptt.w;
-                rect.y += cast(int)(y_off + 4 + line_height*i);
-                string chr = " ";
-                if (pos < command.length)
-                    chr = command[pos..pos+command.stride(pos)];
-                else if (complete.length > 1 && complete[0] == '1')
-                    chr = complete[1..1+complete.stride(1)];
-                if (chr == "\n") chr = " ";
-
-                r = SDL_RenderCopy(gs.renderer, gs.texture_cursor, null, &rect);
-                if (r < 0)
+                if (pos < tt.chars.length)
                 {
-                    writefln( "draw_command_line(), 11: Error while render copy: %s",
+                    rect = tt.chars[pos];
+                    rect.x += 40+ptt.w;
+                    rect.y += cast(int)(y_off + 4 + line_height*i);
+                    string chr = " ";
+                    if (pos < str.length)
+                        chr = str[pos..pos+str.stride(pos)];
+                    else if (complete.length > 1 && complete[0] == '1')
+                        chr = complete[1..1+complete.stride(1)];
+                    if (chr == "\n") chr = " ";
+
+                    r = SDL_RenderCopy(gs.renderer, gs.texture_cursor, null, &rect);
+                    if (r < 0)
+                    {
+                        writefln( "draw_command_line(), 11: Error while render copy: %s",
+                                SDL_GetError().to!string() );
+                    }
+
+                    auto st = gs.text_viewer.font.get_char_from_cache(chr, 9, SDL_Color(0x00, 0x00, 0x20, 0xFF));
+                    if (!st) return;
+
+                    r = SDL_RenderCopy(gs.renderer, st.texture, null, &rect);
+                    if (r < 0)
+                    {
+                        writefln(
+                            "draw_command_line(), 12: Error while render copy: %s", 
                             SDL_GetError().to!string() );
-                }
-
-                auto st = gs.text_viewer.font.get_char_from_cache(chr, 9, SDL_Color(0x00, 0x00, 0x20, 0xFF));
-                if (!st) return;
-
-                r = SDL_RenderCopy(gs.renderer, st.texture, null, &rect);
-                if (r < 0)
-                {
-                    writefln(
-                        "draw_command_line(), 12: Error while render copy: %s", 
-                        SDL_GetError().to!string() );
+                    }
                 }
             }
 
@@ -1702,31 +1720,40 @@ hist_up(GlobalState gs)
 
         if (id != 0)
         {
-            string key_string = key.to!(string);
-            command_key cmd_key;
-            parse_key_for_command(key_string, cmd_key);
-            if (cwd != cmd_key.cwd)
+            do
             {
-                id = 0;
-            }
-            else
-            {
-                id = cmd_key.id;
-                string data_string = data.to!(string);
-                command_data cmd_data;
-                parse_data_for_command(data_string, cmd_data);
-
-                if (hist_pos == 0)
+                string key_string = key.to!(string);
+                command_key cmd_key;
+                parse_key_for_command(key_string, cmd_key);
+                if (cwd != cmd_key.cwd)
                 {
-                    edited_command = command;
+                    id = 0;
                 }
-                hist_pos++;
-                command = cmd_data.command.idup();
-                pos = command.length;
-                //writefln("Excellent");
-                //writefln("cmd_data.command=%s", cmd_data.command);
-                //writefln("pos=%s", pos);
+                else
+                {
+                    string data_string = data.to!(string);
+                    command_data cmd_data;
+                    parse_data_for_command(data_string, cmd_data);
+
+                    if (hist_pos == 0)
+                    {
+                        edited_command = command;
+                    }
+                    hist_pos++;
+
+                    if (search_mode && cmd_data.command.indexOf(search) < 0)
+                        continue;
+
+                    id = cmd_key.id;
+                    command = cmd_data.command.idup();
+                    pos = command.length;
+                    //writefln("Excellent");
+                    //writefln("cmd_data.command=%s", cmd_data.command);
+                    //writefln("pos=%s", pos);
+                }
+                break;
             }
+            while (cursor.get(&key, &data, DB_PREV) == 0);
         }
 
         if (id == 0)
@@ -1755,29 +1782,38 @@ hist_down(GlobalState gs)
 
         if (id != 0)
         {
-            string key_string = key.to!(string);
-            command_key cmd_key;
-            parse_key_for_command(key_string, cmd_key);
-            if (cwd != cmd_key.cwd)
+            do
             {
-                id = 0;
-            }
-            else
-            {
-                //writefln("Excellent");
-                id = cmd_key.id;
-                string data_string = data.to!(string);
-                command_data cmd_data;
-                parse_data_for_command(data_string, cmd_data);
-
-                if (hist_pos == 0)
+                string key_string = key.to!(string);
+                command_key cmd_key;
+                parse_key_for_command(key_string, cmd_key);
+                if (cwd != cmd_key.cwd)
                 {
-                    edited_command = command;
+                    id = 0;
                 }
-                hist_pos++;
-                command = cmd_data.command.idup();
-                pos = command.length;
+                else
+                {
+                    //writefln("Excellent");
+                    string data_string = data.to!(string);
+                    command_data cmd_data;
+                    parse_data_for_command(data_string, cmd_data);
+
+                    if (hist_pos == 0)
+                    {
+                        edited_command = command;
+                    }
+                    hist_pos++;
+
+                    if (search_mode && cmd_data.command.indexOf(search) < 0)
+                        continue;
+
+                    id = cmd_key.id;
+                    command = cmd_data.command.idup();
+                    pos = command.length;
+                }
+                break;
             }
+            while (cursor.get(&key, &data, DB_NEXT) == 0);
         }
 
         if (id == 0)

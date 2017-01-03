@@ -1,7 +1,8 @@
 1. select [DONE]
-2. Ctrl+R 
+2. Ctrl+R [DONE]
 3. $SELECTION [DONE]
 4. | select [DONE]
-5. > , | прямо в истории
-6. +, *
-7. Ctrl-Mode для просмотрщика текстов
+5. > , | прямо в истории [CANCELLED]
+6. +, * [DONE]
+7. Ctrl-Mode для просмотрщика текстов [DONE]
+8. Виртуальная клавиатура

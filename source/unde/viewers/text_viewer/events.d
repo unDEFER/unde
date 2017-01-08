@@ -3,156 +3,77 @@ module unde.viewers.text_viewer.events;
 import unde.global_state;
 import unde.lib;
 import unde.tick;
-import unde.marks;
 import unde.viewers.text_viewer.lib;
+import unde.file_manager.events;
+import unde.command_line.events;
+import unde.keybar.lib;
 
 import derelict.sdl2.sdl;
 
 import std.stdio;
 import std.string;
 import std.math;
+import std.functional;
 
-private
-void process_key_down(GlobalState gs, SDL_Scancode scancode)
+private void
+change_wrap_mode(GlobalState gs)
 {
-    if (gs.mark || gs.gomark || gs.unmark)
+    with (gs.text_viewer)
     {
-        string scancode_name = fromStringz(SDL_GetScancodeName(scancode)).idup();
-        if (scancode_name.length == 1 &&
-                (scancode_name >= "0" && scancode_name <= "9" ||
-                scancode_name >= "A" && scancode_name <= "Z"))
-       
-        { 
-            if (gs.shift || scancode_name >= "0" && scancode_name <= "9")
-            {
-                if (gs.mark)
-                    mark(gs, scancode_name);
-                else if (gs.unmark)
-                    unmark(gs, scancode_name);
-                else if (gs.gomark)
-                    go_mark(gs, scancode_name);
-
-                gs.dirty = true;
-            }
-            else
-            {
-                string msg = format("local marks not implemented.");
-                gs.messages ~= ConsoleMessage(
-                        SDL_Color(0xFF, 0x00, 0x00, 0xFF),
-                        msg,
-                        SDL_GetTicks()
-                        );
-                writeln(msg);
-            }
-        }
-
-        if ( scancode != SDL_SCANCODE_LSHIFT && scancode != SDL_SCANCODE_RSHIFT )
+        wraplines = !wraplines;
+        if (wraplines)
         {
-            gs.mark=false;
-            gs.gomark=false;
-            gs.unmark=false;
-            return;
+            x = 0;
         }
+        last_redraw = 0;
     }
+}
 
-    switch(scancode)
-    { 
-        case SDL_SCANCODE_Q:
-            make_screenshot(gs);
-            gs.finish=true;
-            break;
-        case SDL_SCANCODE_M:
-            if (gs.shift)
-                gs.unmark = true;
-            else
-                gs.mark = true;
-            break;
-        case SDL_SCANCODE_APOSTROPHE:
-            gs.gomark = true;
-            break;
-
-        case SDL_SCANCODE_W:
-            with (gs.text_viewer)
-            {
-                wraplines = !wraplines;
-                if (wraplines)
-                {
-                    x = 0;
-                }
-                last_redraw = 0;
+private void
+go_to_beginning_or_to_the_end(GlobalState gs)
+{
+    with (gs.text_viewer)
+    {
+        if (gs.shift)
+        {
+            File file;
+            try {
+                file = File(path);
             }
-            break;
-
-        case SDL_SCANCODE_G:
-            with (gs.text_viewer)
+            catch (Exception exp)
             {
-                if (gs.shift)
-                {
-                    File file;
-                    try {
-                        file = File(path);
-                    }
-                    catch (Exception exp)
-                    {
-                        break;
-                    }
-                    rectsize.offset = file.size;
-                    y = gs.screen.h;
-                }
-                else
-                {
-                    rectsize.offset = 0;
-                    y = 0;
-                    put_rectsize(gs);
-                }
-                last_redraw = 0;
+                return;
             }
-            break;
+            rectsize.offset = file.size;
+            y = gs.screen.h;
+        }
+        else
+        {
+            rectsize.offset = 0;
+            y = 0;
+            put_rectsize(gs);
+        }
+        last_redraw = 0;
+    }
+}
 
-        case SDL_SCANCODE_PAGEUP:
-            with (gs.text_viewer)
-            {
-                int line_height = cast(int)(round(SQRT2^^9)*1.2);
-                y += gs.screen.h - 2*line_height;
-            }
-            break;
+private void
+textviewer_page_up(GlobalState gs)
+{
+    with (gs.text_viewer)
+    {
+        int line_height = cast(int)(round(SQRT2^^9)*1.2);
+        y += gs.screen.h - 2*line_height;
+    }
+}
 
-        case SDL_SCANCODE_PAGEDOWN:
-            with (gs.text_viewer)
-            {
-                int line_height = cast(int)(round(SQRT2^^9)*1.2);
-                y -= gs.screen.h - 2*line_height;
-            }
-            break;
-
-        case SDL_SCANCODE_A:
-            gs.selection_hash = null;
-            calculate_selection_sub(gs);
-            gs.dirty = true;
-            break;
-
-        case SDL_SCANCODE_UP:
-            break;
-
-        case SDL_SCANCODE_DOWN:
-            break;
-
-        case SDL_SCANCODE_LEFT:
-            text_prev(gs);
-            break; 
-
-        case SDL_SCANCODE_RIGHT:
-            text_next(gs);
-            break; 
-
-        case SDL_SCANCODE_LSHIFT:
-            goto case;
-        case SDL_SCANCODE_RSHIFT:
-            gs.shift = true;
-            break;
-
-        default:
-            break;
+private void
+textviewer_page_down(GlobalState gs)
+{
+    with (gs.text_viewer)
+    {
+        int line_height = cast(int)(round(SQRT2^^9)*1.2);
+        y -= gs.screen.h - 2*line_height;
     }
 }
 
@@ -160,30 +81,12 @@ void process_event(GlobalState gs, ref SDL_Event event)
 {
     switch( event.type )
     {
-        case SDL_KEYDOWN:
-            process_key_down(gs, event.key.keysym.scancode);
-            break;
-
-        case SDL_KEYUP:
-            switch(event.key.keysym.scancode)
-            { 
-                case SDL_SCANCODE_LSHIFT:
-                    goto case;
-                case SDL_SCANCODE_RSHIFT:
-                    gs.shift = false;
-                    break;
-                default:
-                    /* Ignore key */
-                    break;
-            }
-            break;
-            
         case SDL_MOUSEMOTION:
             if (gs.mouse_buttons & unDE_MouseButtons.Left)
             {
                 with (gs.text_viewer)
                 {
-                    if (gs.command_line.ctrl_mode ^ gs.command_line.ctrl)
+                    if (gs.command_line.ctrl_mode ^ gs.ctrl)
                     {
                         if (mouse_offset > first_click)
                         {
@@ -218,7 +121,7 @@ void process_event(GlobalState gs, ref SDL_Event event)
                     gs.moved_while_click = 0;
                     with (gs.text_viewer)
                     {
-                        if (gs.command_line.ctrl_mode ^ gs.command_line.ctrl)
+                        if (gs.command_line.ctrl_mode ^ gs.ctrl)
                         {
                             first_click = mouse_offset;
                         }
@@ -236,82 +139,85 @@ void process_event(GlobalState gs, ref SDL_Event event)
             break;
             
         case SDL_MOUSEBUTTONUP:
-            switch (event.button.button)
+            if (gs.mouse_screen_x < gs.screen.w)
             {
-                case SDL_BUTTON_LEFT:
-                    with(gs.text_viewer)
-                    {
-                        gs.mouse_buttons &= ~unDE_MouseButtons.Left;
-                        if (!gs.moved_while_click)
+                switch (event.button.button)
+                {
+                    case SDL_BUTTON_LEFT:
+                        with(gs.text_viewer)
                         {
-                            if (SDL_GetTicks() - gs.last_left_click < DOUBLE_DELAY)
+                            gs.mouse_buttons &= ~unDE_MouseButtons.Left;
+                            if (!gs.moved_while_click)
                             {
-                                gs.state = State.FileManager;
-                                gs.dirty = true;
+                                if (SDL_GetTicks() - gs.last_left_click < DOUBLE_DELAY)
+                                {
+                                    gs.state = State.FileManager;
+                                    gs.dirty = true;
+                                }
+                                else if (gs.shift)
+                                {
+                                    if (mouse_offset > first_click)
+                                    {
+                                        end_selection = mouse_offset;
+                                    }
+                                    else
+                                    {
+                                        start_selection = mouse_offset;
+                                    }
+                                    selection_to_buffer(gs);
+                                }
+                                else if (gs.command_line.ctrl_mode ^ gs.ctrl)
+                                {
+                                    start_selection = -1;
+                                    end_selection = -1;
+                                    last_redraw = 0;
+                                }
+                                gs.last_left_click = SDL_GetTicks();
                             }
-                            else if (gs.command_line.shift)
+                            else if (gs.command_line.ctrl_mode ^ gs.ctrl)
                             {
                                 if (mouse_offset > first_click)
                                 {
+                                    start_selection = first_click;
                                     end_selection = mouse_offset;
                                 }
                                 else
                                 {
                                     start_selection = mouse_offset;
+                                    end_selection = first_click;
                                 }
+                                last_redraw = 0;
                                 selection_to_buffer(gs);
                             }
-                            else if (gs.command_line.ctrl_mode ^ gs.command_line.ctrl)
-                            {
-                                start_selection = -1;
-                                end_selection = -1;
-                                last_redraw = 0;
-                            }
-                            gs.last_left_click = SDL_GetTicks();
                         }
-                        else if (gs.command_line.ctrl_mode ^ gs.command_line.ctrl)
+                        break;
+                    case SDL_BUTTON_MIDDLE:
+                        gs.mouse_buttons &= ~unDE_MouseButtons.Middle;
+                        break;
+                    case SDL_BUTTON_RIGHT:
+                        gs.mouse_buttons &= ~unDE_MouseButtons.Right;
+
+                        with (gs.text_viewer)
                         {
-                            if (mouse_offset > first_click)
-                            {
-                                start_selection = first_click;
-                                end_selection = mouse_offset;
-                            }
+                            if (path in gs.selection_hash)
+                                gs.selection_hash.remove(path);
                             else
-                            {
-                                start_selection = mouse_offset;
-                                end_selection = first_click;
-                            }
-                            last_redraw = 0;
-                            selection_to_buffer(gs);
+                                /* EN: FIXME: Sort type of the directory maybe other
+                                   RU: ИСПРАВЬ_МЕНЯ: Сортировка директории может быть другой */
+                                gs.selection_hash[path] = rectsize.rect(SortType.BySize);
                         }
-                    }
-                    break;
-                case SDL_BUTTON_MIDDLE:
-                    gs.mouse_buttons &= ~unDE_MouseButtons.Middle;
-                    break;
-                case SDL_BUTTON_RIGHT:
-                    gs.mouse_buttons &= ~unDE_MouseButtons.Right;
 
-                    with (gs.text_viewer)
-                    {
-                        if (path in gs.selection_hash)
-                            gs.selection_hash.remove(path);
-                        else
-                            /* EN: FIXME: Sort type of the directory maybe other
-                               RU: ИСПРАВЬ_МЕНЯ: Сортировка директории может быть другой */
-                            gs.selection_hash[path] = rectsize.rect(SortType.BySize);
-                    }
-
-                    break;
-                default:
-                    break;
+                        break;
+                    default:
+                        break;
+                }
             }
             break;
 
         case SDL_MOUSEWHEEL:
             with (gs.text_viewer)
             {
-                if (gs.command_line.ctrl_mode ^ gs.command_line.ctrl)
+                if (gs.command_line.ctrl_mode ^ gs.ctrl)
                 {
                     y += event.wheel.y * 40;
                 }
@@ -335,4 +241,41 @@ void process_event(GlobalState gs, ref SDL_Event event)
             //writeln("Ignored event: "~to!string(event.type));
             break;
     }
+}
+
+void
+setup_keybar_textviewer_default(GlobalState gs)
+{
+    gs.keybar.handlers.clear();
+    gs.keybar.handlers_down.clear();
+    gs.keybar.handlers_double.clear();
+
+    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&quit), "Quit", "exit.png");
+    gs.keybar.handlers[SDL_SCANCODE_PRINTSCREEN] = KeyHandler(toDelegate(&make_screenshot), "Make screenshot", "Prt Sc");
+    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&mark), "Make Mark", "mark.png");
+    gs.keybar.handlers[SDL_SCANCODE_APOSTROPHE] = KeyHandler(toDelegate(&gomark), "Go To Mark", "gomark.png");
+    gs.keybar.handlers[SDL_SCANCODE_A] = KeyHandler(toDelegate(&deselect_all), "Clear selection", "deselect.png");
+    gs.keybar.handlers_down[SDL_SCANCODE_LSHIFT] = KeyHandler(toDelegate(&setup_keybar_textviewer_shift), "", "Shift");
+    gs.keybar.handlers_down[SDL_SCANCODE_RSHIFT] = KeyHandler(toDelegate(&setup_keybar_textviewer_shift), "", "");
+    gs.keybar.handlers[SDL_SCANCODE_LEFT] = KeyHandler(toDelegate(&text_prev), "Next Text", "←");
+    gs.keybar.handlers[SDL_SCANCODE_RIGHT] = KeyHandler(toDelegate(&text_next), "Prev Text", "→");
+    gs.keybar.handlers[SDL_SCANCODE_W] = KeyHandler(toDelegate(&change_wrap_mode), "On/Off wrap lines", "Wrap");
+    gs.keybar.handlers[SDL_SCANCODE_G] = KeyHandler(toDelegate(&go_to_beginning_or_to_the_end), "Go To Beginining", "Begin");
+    gs.keybar.handlers[SDL_SCANCODE_PAGEUP] = KeyHandler(toDelegate(&textviewer_page_up), "Page Up", "PgUp");
+    gs.keybar.handlers[SDL_SCANCODE_PAGEDOWN] = KeyHandler(toDelegate(&textviewer_page_down), "Page Down", "PgD");
+    gs.keybar.handlers_double[SDL_SCANCODE_LCTRL] = KeyHandler(toDelegate(&turn_on_off_ctrl_mode), "Ctrl Mode", "Ctrl");
+    gs.keybar.handlers_double[SDL_SCANCODE_RCTRL] = KeyHandler(toDelegate(&turn_on_off_ctrl_mode), "", "");
+}
+
+void
+setup_keybar_textviewer_shift(GlobalState gs)
+{
+    gs.keybar.handlers.clear();
+    gs.keybar.handlers_down.clear();
+    gs.keybar.handlers_double.clear();
+
+    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&unmark), "Delete Mark", "unmark.png");
+    gs.keybar.handlers[SDL_SCANCODE_G] = KeyHandler(toDelegate(&go_to_beginning_or_to_the_end), "Go To End", "End");
+    gs.keybar.handlers[SDL_SCANCODE_LSHIFT] = KeyHandler(toDelegate(&setup_keybar_textviewer_default), "", "Shift");
+    gs.keybar.handlers[SDL_SCANCODE_RSHIFT] = KeyHandler(toDelegate(&setup_keybar_textviewer_default), "", "");
 }

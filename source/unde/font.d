@@ -52,6 +52,7 @@ enum Attr
     Underscore = 0x200,
     HalfBright = 0x400,
     Blink = 0x800,
+    Color = 0x1000,
 }
 
 class Font
@@ -307,7 +308,7 @@ class Font
                     attr = Attr.Black<<4 | Attr.White;
                 if (i >= start_pos && i <= end_pos)
                     attr = attr & 0x0F | (Attr.Blue << 4);
-                if ( attr != (Attr.Black<<4 | Attr.White) )
+                if ( attr != (Attr.Black<<4 | Attr.White) && !(attr & Attr.Color) )
                 {
                     switch (attr & 0x0F)
                     {
@@ -487,7 +488,7 @@ class Font
                 else attr = Attr.Black<<4 | Attr.White;
                 if (i >= start_pos && i <= end_pos)
                     attr = attr & 0x0F | (Attr.Blue << 4);
-                if ( attr != (Attr.Black<<4 | Attr.White) )
+                if ( attr != (Attr.Black<<4 | Attr.White) && !(attr & Attr.Color) )
                 {
                     switch (attr & 0x0F)
                     {

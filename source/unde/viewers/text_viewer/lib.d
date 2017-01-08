@@ -324,7 +324,8 @@ draw_text(GlobalState gs)
             }
         }
 
-        int r = SDL_RenderCopy(gs.renderer, texture, null, null);
+        SDL_Rect dst = SDL_Rect(0, 0, gs.screen.w, gs.screen.h);
+        int r = SDL_RenderCopy(gs.renderer, texture, null, &dst);
         if (r < 0)
         {
             writefln( "draw_text(): Error while render copy texture: %s", fromStringz(SDL_GetError()) );

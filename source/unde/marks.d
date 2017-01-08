@@ -345,6 +345,15 @@ void unmark(GlobalState gs, string m)
     }
 }
 
+bool check_mark(GlobalState gs, string m)
+{
+    Dbt key = m;
+    Dbt data;
+
+    auto res = gs.db_marks.get(null, &key, &data);
+    return (res == 0);
+}
+
 void go_mark(GlobalState gs, string m)
 {
     Dbt key = m;

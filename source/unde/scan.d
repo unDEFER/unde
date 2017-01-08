@@ -1201,7 +1201,7 @@ check_scanners(GlobalState gs)
                             if (gs.command_line.terminal)
                             {
                                 gs.command_line.enter = true;
-                                SDL_StartTextInput();
+                                gs.keybar.input_mode = true;
                             }
                         }
 
@@ -1237,7 +1237,7 @@ check_scanners(GlobalState gs)
                     {
                         gs.command_line.command_in_focus_tid = tid;
                         gs.command_line.command_in_focus_id = new_id;
-                        SDL_StartTextInput();
+                        gs.keybar.input_mode = true;
                     }
                 },
                 (shared(Throwable) exc) 

@@ -200,6 +200,16 @@ char[i] to_char_array(int i)(string str)
     return ret;
 }
 
+char[i] to_char_array_z(int i)(string str)
+{
+    char[i] ret;
+    size_t l = str.length;
+    if (l > i) l = i;
+    ret[0..l] = str[0..l];
+    ret[l..$] = '\0';
+    return ret;
+}
+
 string from_char_array(const char[] str)
 {
     int i;

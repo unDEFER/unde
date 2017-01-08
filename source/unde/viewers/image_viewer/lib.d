@@ -67,7 +67,7 @@ setup_0_scale(GlobalState gs)
 
                 if (rectsize.angle == 90 || rectsize.angle == 270)
                 {
-                    if (w/h > gs.screen.w/gs.screen.h)
+                    if (cast(double)(w)/h > cast(double)(gs.screen.w)/gs.screen.h)
                     {
                         /* EN: Center and scale down picture to take all width
                             of screen
@@ -92,7 +92,7 @@ setup_0_scale(GlobalState gs)
                 }
                 else
                 {
-                    if (w/h > gs.screen.w/gs.screen.h)
+                    if (cast(double)(w)/h > cast(double)(gs.screen.w)/gs.screen.h)
                     {
                         /* EN: Center and scale down picture to take all width
                             of screen
@@ -189,7 +189,7 @@ get_image_from_cache(GlobalState gs,
         }
         else
         {
-            auto image = IMG_Load(path.toStringz());
+            auto image = IMG_Load(p.toStringz);
 
             if (image)
             {
@@ -241,12 +241,14 @@ draw_image(GlobalState gs)
 {
     with(gs.image_viewer)
     {
+        texture_tick = get_image_from_cache(gs, path);
         clear_image_cache(gs);
         if (texture_tick && texture_tick.texture)
         {
             if (path in gs.selection_hash)
             {
-                int r = SDL_RenderCopy(gs.renderer, gs.texture_blue, null, null);
+                SDL_Rect dst = SDL_Rect(0, 0, gs.screen.w, gs.screen.h);
+                int r = SDL_RenderCopy(gs.renderer, gs.texture_blue, null, &dst);
                 if (r < 0)
                 {
                     writefln( "draw_image(): Error while render copy: %s", fromStringz(SDL_GetError()) );

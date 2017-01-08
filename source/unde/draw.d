@@ -8,9 +8,11 @@ import unde.file_manager.copy_paths;
 import unde.file_manager.draw_path.draw_path;
 import unde.marks;
 import unde.file_manager.find_path;
+import unde.file_manager.events;
 import unde.viewers.image_viewer.lib;
 import unde.viewers.text_viewer.lib;
 import unde.command_line.lib;
+import unde.keybar.lib;
 import unde.tick;
 import unde.path_mnt;
 import unde.clickable;
@@ -434,8 +436,10 @@ void draw_screen(GlobalState gs, DbTxn txn)
             break;
     }
 
+    setup_keybar(gs);
     draw_messages(gs);
     draw_command_line(gs);
+    draw_keybar(gs);
     remark_desktop(gs);
 
     SDL_SetRenderTarget(gs.renderer, null);

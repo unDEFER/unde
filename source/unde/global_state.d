@@ -8,6 +8,8 @@ import unde.font;
 import unde.marks;
 import unde.slash;
 import unde.command_line.lib;
+import unde.file_manager.events;
+import unde.keybar.lib;
 
 import std.format;
 import std.conv;
@@ -491,8 +493,6 @@ struct Command_Line_State{
     bool font_changed;
 
     bool enter;
-    bool ctrl;
-    bool shift;
     string command;
     string complete;
     string edited_command;
@@ -540,6 +540,22 @@ struct Command_Line_State{
     winsize ws;
 }
 
+enum Modifiers
+{
+    Left_Ctrl  = 0x0001,
+    Right_Ctrl = 0x0002,
+    Left_Shift = 0x0004,
+    Right_Shift= 0x0008,
+    Left_Alt   = 0x0010,
+    Right_Alt  = 0x0020,
+    CapsLock   = 0x0040,
+    Left_Win   = 0x0080,
+    Right_Win  = 0x0100,
+    Space      = 0x0200,
+    Menu       = 0x0400,
+    ScrollLock = 0x0800,
+}
+
 class GlobalState
 {
 	SDL_Window* window;
@@ -559,12 +575,17 @@ class GlobalState
     Image_Viewer_State image_viewer;
     Text_Viewer_State text_viewer;
     Command_Line_State command_line;
+    KeyBar_Buttons keybar;
 
     CoordinatesPlusScale screen;
     double mousex, mousey;
     int mouse_screen_x, mouse_screen_y;
+    long last_mouse_down;
     long last_left_click;
     long last_right_click;
+    long last_middle_click;
+    long last_key_press;
+    int key_press;
     int moved_while_click;
     uint flags;
     uint mouse_buttons;
@@ -619,8 +640,11 @@ class GlobalState
     bool mark;
     bool gomark;
     bool unmark;
-    bool shift;
-    bool ctrl;
+    ushort modifiers;
+    @property bool ctrl() { return (modifiers & (Modifiers.Left_Ctrl | Modifiers.Right_Ctrl)) != 0; }
+    @property bool shift() { return (modifiers & (Modifiers.Left_Shift | Modifiers.Right_Shift)) != 0; }
+    @property bool alt() { return (modifiers & (Modifiers.Left_Alt)) != 0; }
+    @property bool alt_gr() { return (modifiers & (Modifiers.Right_Alt)) != 0; }
     bool shift_copy_or_move;
     DRect  current_path_rect;
     string current_path;
@@ -763,6 +787,7 @@ class GlobalState
         createRenderer();
 
         SDL_GetWindowSize(window, &screen.w, &screen.h);
+        screen.w -= 192;
 
         createTextures();
 
@@ -914,6 +939,7 @@ class GlobalState
 
     this(bool force_recover = false)
     {
+        start_cwd = getcwd();
         txn_on = false;
         msg_stamp = Clock.currTime().toUnixTime();
         initBDB(force_recover);
@@ -924,6 +950,8 @@ class GlobalState
         .lsblk(this.lsblk);
         getCurrentDesktop();
         update_winsize(this);
+        keybar = new KeyBar_Buttons(renderer, start_cwd);
+        setup_keybar_filemanager_default(this);
     }
 
     ~this()

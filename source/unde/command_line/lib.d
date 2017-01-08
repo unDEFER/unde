@@ -1548,10 +1548,10 @@ redraw:
                 rect.w = gs.screen.w - 32*2;
                 rect.h = cast(int)(line_height*lines + 8);
 
-                if (complete.length > 1 && complete[0] == '2')
+                if (complete.length > 1 && complete[0] == '2' && ctt !is null)
                 {
-                    rect.y -= line_height;
-                    rect.h += line_height;
+                    rect.y -= ctt.h;
+                    rect.h += ctt.h;
                 }
 
                 r = SDL_RenderCopy(gs.renderer, gs.texture_black, null, &rect);
@@ -1609,7 +1609,7 @@ redraw:
                     else if (complete[0] == '2' || pos < command.length)
                     {
                         rect.x = 40;
-                        rect.y = cast(int)(y_off + 4 + line_height*(i-1));
+                        rect.y = cast(int)(y_off + 4 + line_height*i - ctt.h);
                         rect.w = ctt.w;
                         rect.h = ctt.h;
                     }
@@ -1669,7 +1669,8 @@ redraw:
             gs.text_viewer.font.clear_lines_cache();
         }
 
-        int r = SDL_RenderCopy(gs.renderer, texture, null, null);
+        SDL_Rect dst = SDL_Rect(0, 0, gs.screen.w, gs.screen.h);
+        int r = SDL_RenderCopy(gs.renderer, texture, null, &dst);
         if (r < 0)
         {
             writefln( "draw_text(): Error while render copy texture: %s", fromStringz(SDL_GetError()) );

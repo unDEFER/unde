@@ -9,6 +9,7 @@ import unde.file_manager.move_paths;
 import unde.command_line.events;
 import unde.viewers.image_viewer.events;
 import unde.viewers.text_viewer.events;
+import unde.keybar.settings;
 import unde.keybar.lib;
 import unde.marks;
 import unde.tick;
@@ -36,6 +37,12 @@ void nothing(GlobalState gs)
 void quit(GlobalState gs)
 {
     gs.finish=true;
+}
+
+void restart(GlobalState gs)
+{
+    gs.finish=true;
+    gs.restart=true;
 }
 
 void mark(GlobalState gs)
@@ -376,6 +383,7 @@ auto get_mark(string mark)
     return (GlobalState gs)
     {
         unde.marks.mark(gs, mark);
+        gs.mark = false;
     };
 }
 
@@ -384,6 +392,7 @@ auto get_unmark(string mark)
     return (GlobalState gs)
     {
         unde.marks.unmark(gs, mark);
+        gs.unmark = false;
     };
 }
 
@@ -392,6 +401,7 @@ auto get_gomark(string mark)
     return (GlobalState gs)
     {
         unde.marks.go_mark(gs, mark);
+        gs.gomark = false;
     };
 }
 
@@ -602,10 +612,22 @@ bool setup_keybar_mark(GlobalState gs)
 
 void setup_keybar(GlobalState gs)
 {
+    foreach (uipage; gs.uipages)
+    {
+        if (uipage.show)
+        {
+            uipage.set_keybar(gs);
+            return;
+        }
+    }
+
     final switch (gs.state)
     {
         case State.FileManager:
-            if (gs.command_line.enter)
+            if (setup_keybar_mark(gs))
+            {
+            }
+            else if (gs.command_line.enter)
             {
                 if (gs.ctrl)
                 {
@@ -624,7 +646,14 @@ void setup_keybar(GlobalState gs)
                 }
                 else
                 {
-                    setup_keybar_terminal(gs);
+                    if (gs.ctrl)
+                    {
+                        setup_keybar_terminal_ctrl(gs);
+                    }
+                    else
+                    {
+                        setup_keybar_terminal(gs);
+                    }
                 }
             }
             else if (gs.current_path in gs.enter_names)
@@ -643,10 +672,7 @@ void setup_keybar(GlobalState gs)
             else
             {
                 gs.keybar.input_mode = false;
-                if (setup_keybar_mark(gs))
-                {
-                }
-                else if (gs.ctrl)
+                if (gs.ctrl)
                     setup_keybar_filemanager_ctrl(gs);
                 else if (gs.shift)
                     setup_keybar_filemanager_shift(gs);
@@ -710,7 +736,9 @@ setup_keybar_filemanager_ctrl(GlobalState gs)
     gs.keybar.handlers_down.clear();
     gs.keybar.handlers_double.clear();
 
+    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&restart), "Restart", "exit.png");
     gs.keybar.handlers[SDL_SCANCODE_SEMICOLON] = KeyHandler(toDelegate(&turn_on_command_line), "Command line", "command_line.png");
+    gs.keybar.handlers[SDL_SCANCODE_L] = KeyHandler(toDelegate(&turn_on_keybar_settings), "Keyboard layouts settings", "keybar");
     gs.keybar.handlers[SDL_SCANCODE_LCTRL] = KeyHandler(toDelegate(&setup_keybar_filemanager_default), "", "Ctrl");
     gs.keybar.handlers[SDL_SCANCODE_RCTRL] = KeyHandler(toDelegate(&setup_keybar_filemanager_default), "", "");
 }

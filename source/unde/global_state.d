@@ -10,6 +10,8 @@ import unde.slash;
 import unde.command_line.lib;
 import unde.file_manager.events;
 import unde.keybar.lib;
+import unde.keybar.settings;
+import unde.guitk.lib;
 
 import std.format;
 import std.conv;
@@ -576,6 +578,7 @@ class GlobalState
     Text_Viewer_State text_viewer;
     Command_Line_State command_line;
     KeyBar_Buttons keybar;
+    UIPage[string] uipages;
 
     CoordinatesPlusScale screen;
     double mousex, mousey;
@@ -659,6 +662,7 @@ class GlobalState
     SDL_Texture* texture_black;
     SDL_Texture* texture_blue;
     SDL_Texture* texture_cursor;
+    SDL_Texture* texture_gray;
     Gradient grad;
 
     void createWindow()
@@ -746,6 +750,11 @@ class GlobalState
         (cast(uint*) surface.pixels)[0] = 0xFFA0A0FF;
 
         texture_cursor =
+            SDL_CreateTextureFromSurface(renderer, surface);
+
+        (cast(uint*) surface.pixels)[0] = 0x80808080;
+
+        texture_gray =
             SDL_CreateTextureFromSurface(renderer, surface);
 
         text_viewer.texture = SDL_CreateTexture(renderer,
@@ -950,8 +959,9 @@ class GlobalState
         .lsblk(this.lsblk);
         getCurrentDesktop();
         update_winsize(this);
-        keybar = new KeyBar_Buttons(renderer, start_cwd);
+        keybar = new KeyBar_Buttons(this, renderer, start_cwd);
         setup_keybar_filemanager_default(this);
+        uipages["keybar_settings"] = create_keybar_settings_ui(this);
     }
 
     ~this()

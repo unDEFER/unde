@@ -69,7 +69,10 @@ turn_off_command_line(GlobalState gs)
         }
         else
         {
-            gs.keybar.input_mode = false;
+            if (!terminal || command_in_focus_id == 0)
+            {
+                gs.keybar.input_mode = false;
+            }
             writefln("Command line close");
             enter = false;
             setup_keybar_filemanager_default(gs);
@@ -298,6 +301,7 @@ process_event(GlobalState gs, ref SDL_Event event)
                             command[pos..$]).idup();
                     }
                     pos += input.length;
+                    last_redraw = 0;
                 }
                 else if (command_in_focus_id > 0)
                 {
@@ -555,11 +559,19 @@ setup_keybar_command_line_ctrl(GlobalState gs)
     setup_keybar_command_line_default(gs);
     gs.keybar.handlers_down[SDL_SCANCODE_R] = KeyHandler(toDelegate(&command_line_search_mode_on), "Search mode", "Srch");
     gs.keybar.handlers[SDL_SCANCODE_RETURN] = KeyHandler(toDelegate(&command_line_enter), "New line", "\\n");
+    //gs.keybar.handlers_down[SDL_SCANCODE_APOSTROPHE] = KeyHandler(toDelegate(&gomark), "Go To Mark", "gomark.png");
 }
 
 void
 setup_keybar_terminal(GlobalState gs)
 {
+    gs.keybar.handlers.clear();
+    gs.keybar.handlers_down.clear();
+    gs.keybar.handlers_double.clear();
+
+    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&quit), "Quit", "exit.png");
+    gs.keybar.handlers[SDL_SCANCODE_PRINTSCREEN] = KeyHandler(toDelegate(&make_screenshot), "Make screenshot", "Prt Sc");
+    gs.keybar.handlers[SDL_SCANCODE_APOSTROPHE] = KeyHandler(toDelegate(&gomark), "Go To Mark", "gomark.png");
     if (gs.shift)
     {
         gs.keybar.handlers[SDL_SCANCODE_PAGEUP] = KeyHandler(toDelegate(&terminal_page_up), "Page Up", "PgUp");
@@ -567,7 +579,23 @@ setup_keybar_terminal(GlobalState gs)
     }
     gs.keybar.handlers_double[SDL_SCANCODE_LCTRL] = KeyHandler(toDelegate(&turn_on_off_ctrl_mode), "Ctrl Mode", "Ctrl");
     gs.keybar.handlers_double[SDL_SCANCODE_RCTRL] = KeyHandler(toDelegate(&turn_on_off_ctrl_mode), "", "");
+    gs.keybar.handlers_down[SDL_SCANCODE_LCTRL] = KeyHandler(toDelegate(&setup_keybar_terminal_ctrl), "", "Ctrl");
+    gs.keybar.handlers_down[SDL_SCANCODE_RCTRL] = KeyHandler(toDelegate(&setup_keybar_terminal_ctrl), "", "");
     gs.keybar.handlers[SDL_SCANCODE_ESCAPE] = KeyHandler(toDelegate(&turn_off_terminal), "Close terminal", "Esc");
+}
+
+void
+setup_keybar_terminal_ctrl(GlobalState gs)
+{
+    gs.keybar.handlers.clear();
+    gs.keybar.handlers_down.clear();
+    gs.keybar.handlers_double.clear();
+
+    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&restart), "Restart", "exit.png");
+    gs.keybar.handlers[SDL_SCANCODE_SEMICOLON] = KeyHandler(toDelegate(&turn_on_command_line), "Command line", "command_line.png");
+    gs.keybar.handlers[SDL_SCANCODE_APOSTROPHE] = KeyHandler(toDelegate(&gomark), "Go To Mark", "gomark.png");
+    gs.keybar.handlers[SDL_SCANCODE_LCTRL] = KeyHandler(toDelegate(&setup_keybar_terminal), "", "Ctrl");
+    gs.keybar.handlers[SDL_SCANCODE_RCTRL] = KeyHandler(toDelegate(&setup_keybar_terminal), "", "");
 }
 
 void
@@ -593,6 +621,14 @@ setup_keybar_terminal_command_focus_in(GlobalState gs)
             scancode_name[0] -= 'A'-1;
             gs.keybar.handlers_down[i] = KeyHandler(get_send_input(scancode_name.idup()), "Ctrl+"~letter, letter);
         }
+        gs.keybar.handlers_down[SDL_SCANCODE_SEMICOLON] = KeyHandler(toDelegate(&turn_on_command_line), "Command line", "command_line.png");
+        //gs.keybar.handlers_down[SDL_SCANCODE_APOSTROPHE] = KeyHandler(toDelegate(&gomark), "Go To Mark", "gomark.png");
+    }
+
+    if (gs.shift)
+    {
+        gs.keybar.handlers[SDL_SCANCODE_PAGEUP] = KeyHandler(toDelegate(&terminal_page_up), "Page Up", "PgUp");
+        gs.keybar.handlers[SDL_SCANCODE_PAGEDOWN] = KeyHandler(toDelegate(&terminal_page_down), "Page Down", "PgD");
     }
 
     gs.keybar.handlers_down[SDL_SCANCODE_ESCAPE] = KeyHandler(get_send_input("\x1B"), "", "Esc");

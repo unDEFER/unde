@@ -13,6 +13,7 @@ import unde.viewers.image_viewer.lib;
 import unde.viewers.text_viewer.lib;
 import unde.command_line.lib;
 import unde.keybar.lib;
+import unde.keybar.settings;
 import unde.tick;
 import unde.path_mnt;
 import unde.clickable;
@@ -439,6 +440,11 @@ void draw_screen(GlobalState gs, DbTxn txn)
     setup_keybar(gs);
     draw_messages(gs);
     draw_command_line(gs);
+    foreach (uipage; gs.uipages)
+    {
+        if (uipage.show)
+            uipage.on_draw(gs);
+    }
     draw_keybar(gs);
     remark_desktop(gs);
 

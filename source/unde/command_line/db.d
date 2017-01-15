@@ -5,6 +5,8 @@ import std.bitmanip;
 import std.string;
 import std.stdio;
 
+import unde.global_state;
+
 struct command_key
 {
     string cwd;
@@ -397,4 +399,66 @@ find_next_command_out(Dbc cursor, string cwd, ulong cmd_id, ulong out_id,
     id = find_next_by_key(cursor, out_id, id, key, data);
 
     return id;
+}
+
+private
+struct TxnPuts
+{
+   uint txn_id;
+   string[] keys;
+   string[] datas;
+}
+
+package int
+command_output_put(CMDGlobalState cgs, Dbt *key, Dbt *data)
+{
+    static TxnPuts txn_puts;
+    auto txn_id = cgs.txn.id();
+    if (txn_id != txn_puts.txn_id)
+    {
+        txn_puts.txn_id = txn_id;
+        txn_puts.keys = [];
+        txn_puts.datas = [];
+    }
+
+    bool reput;
+    int res;
+retry:
+    try
+    {
+        if (reput)
+        {
+            txn_puts.txn_id = cgs.txn.id();
+            for (ssize_t i = 0; i < txn_puts.keys.length; i++)
+            {
+                Dbt key2, data2;
+                key2 = txn_puts.keys[i];
+                data2 = txn_puts.datas[i];
+                cgs.db_command_output.put(cgs.txn, &key2, &data2);
+            }
+        }
+
+        res = cgs.db_command_output.put(cgs.txn, key, data);
+    }
+    catch (DbDeadlockException exp)
+    {
+        writefln("Oops deadlock, retry");
+        cgs.abort();
+        cgs.recommit();
+        reput = true;
+        goto retry;
+    }
+
+    string str_key = key.to!(string).idup();
+    if (txn_puts.keys.length > 0 && str_key == txn_puts.keys[$-1])
+    {
+        txn_puts.datas[$-1] ~= data.to!(string).idup();
+    }
+    else
+    {
+        txn_puts.keys ~= str_key;
+        txn_puts.datas ~= data.to!(string).idup();
+    }
+
+    return res;
 }

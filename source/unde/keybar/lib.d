@@ -1,5 +1,7 @@
 module unde.keybar.lib;
 
+import berkeleydb.all;
+
 import derelict.sdl2.sdl;
 import derelict.sdl2.ttf;
 import derelict.sdl2.image;
@@ -15,6 +17,9 @@ import std.string;
 import std.math;
 import std.range.primitives;
 import std.file;
+import std.algorithm.sorting;
+import std.process;
+import core.stdc.locale;
 
 struct KeyHandler
 {
@@ -79,6 +84,7 @@ class KeyBar_Buttons
 
     bool input_mode;
 
+    string[] layout_names;
     Layout[string] layouts;
     Layout*[] layout_modes;
     ssize_t mode;
@@ -95,9 +101,14 @@ class KeyBar_Buttons
     ButtonPos[SDL_Scancode] buttonpos_by_scan;
     ButtonPos[SDL_Scancode] buttonpos_by_scan_altgr;
 
+    string[] layout_changer_names;
+    LayoutChanger[] layout_changer_values;
+
+    bool keybar_settings_needed;
+
     SDL_Rect[] buttons;
     ssize_t pos;
-    this(SDL_Renderer *renderer, string start_cwd)
+    this(GlobalState gs, SDL_Renderer *renderer, string start_cwd)
     {
         this.renderer = renderer;
         buttons = 
@@ -160,7 +171,28 @@ class KeyBar_Buttons
             }
         }
 
-        read_layouts(start_cwd);
+        layout_changer_names = ["Ctrl + Shift", "Left Alt", "Right Alt",
+            "Caps Lock", "Left Shift + Caps Lock", "Left Alt + Caps Lock",
+            "Both Shift", "Both Alt", "Both Ctrl", "Right Ctrl + Right Shift",
+            "Left Alt + Left Ctrl", "Left Alt + Left Shift", "Left Alt + Space",
+            "Menu", "Left Win", "Left Win + Space", "Right Win",
+            "Left Shift", "Right Shift", "Left Ctrl", "Right Ctrl",
+            "Scroll Lock"];
+
+        with (LayoutChanger)
+        {
+            layout_changer_values = [ Ctrl_Shift, LeftAlt, RightAlt, 
+                CapsLock, Shift_CapsLock, Alt_CapsLock,
+                Both_Shift, Both_Alt, Both_Ctrl, RightCtrl_RightShift,
+                Alt_Ctrl, Alt_Shift, Alt_Space,
+                Menu, LeftWin, Win_Space, RightWin,
+                LeftShift, RightShift, LeftCtrl, RightCtrl,
+                ScrollLock];
+        }
+
+        assert(layout_changer_names.length == layout_changer_values.length);
+
+        read_layouts(gs, start_cwd);
         SDL_StopTextInput();
     }
 
@@ -208,7 +240,7 @@ class KeyBar_Buttons
     }
 
     void
-    read_layouts(string start_cwd)
+    read_layouts(GlobalState gs, string start_cwd)
     {
         foreach(filename; dirEntries(start_cwd~"/layouts/", SpanMode.breadth))
         {
@@ -287,12 +319,38 @@ class KeyBar_Buttons
                 }
             }
 
+            layout_names ~= layout.name ~ " - " ~ layout.short_name;
             layouts[layout.short_name] = layout;
         }
 
-        layout_modes ~= &layouts["us(basic)"];
-        layout_modes ~= &layouts["ru(winkeys)"];
-        changer = LayoutChanger.LeftWin;
+        sort!("a < b")(layout_names);
+        load_keybar_settings(gs, this);
+    }
+}
+
+void update_letters(GlobalState gs)
+{
+    if (gs.keybar.input_mode)
+    {
+        if (gs.alt_gr && gs.shift)
+            gs.keybar.letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_shift_altgr;
+        else if (gs.alt_gr)
+            gs.keybar.letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_altgr;
+        else if (gs.shift)
+            gs.keybar.letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_shift;
+        else
+            gs.keybar.letters = &gs.keybar.layout_modes[gs.keybar.mode].letters;
+    }
+    else
+    {
+        if (gs.alt_gr && gs.shift)
+            gs.keybar.letters = &gs.keybar.layouts["us(basic)"].letters_shift_altgr;
+        else if (gs.alt_gr)
+            gs.keybar.letters = &gs.keybar.layouts["us(basic)"].letters_altgr;
+        else if (gs.shift)
+            gs.keybar.letters = &gs.keybar.layouts["us(basic)"].letters_shift;
+        else
+            gs.keybar.letters = &gs.keybar.layouts["us(basic)"].letters;
     }
 }
 
@@ -363,28 +421,7 @@ draw_keybar(GlobalState gs)
 
         string description = "";
 
-        if (gs.keybar.input_mode)
-        {
-            if (gs.alt_gr)
-                gs.keybar.letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_altgr;
-            else if (gs.alt_gr && gs.shift)
-                gs.keybar.letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_shift_altgr;
-            else if (gs.shift)
-                gs.keybar.letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_shift;
-            else
-                gs.keybar.letters = &gs.keybar.layout_modes[gs.keybar.mode].letters;
-        }
-        else
-        {
-            if (gs.alt_gr)
-                gs.keybar.letters = &gs.keybar.layouts["us(basic)"].letters_altgr;
-            else if (gs.alt_gr && gs.shift)
-                gs.keybar.letters = &gs.keybar.layouts["us(basic)"].letters_shift_altgr;
-            else if (gs.shift)
-                gs.keybar.letters = &gs.keybar.layouts["us(basic)"].letters_shift;
-            else
-                gs.keybar.letters = &gs.keybar.layouts["us(basic)"].letters;
-        }
+        update_letters(gs);
 
         if (gs.alt_gr)
             gs.keybar.scans_cur = &gs.keybar.scans_altgr;
@@ -566,6 +603,75 @@ draw_keybar(GlobalState gs)
                 writefln( "draw_keybar() 6: Error while render copy: %s",
                         SDL_GetError().to!string() );
             }
+        }
+    }
+}
+
+void
+save_keybar_settings(GlobalState gs)
+{
+    with(gs.keybar)
+    {
+        Dbt key, data;
+        string keybar_settings_str = "keybar_settings";
+        key = keybar_settings_str;
+        string data_str = "";
+
+        data_str ~= (cast(char*)&changer)[0..changer.sizeof];
+        foreach(layout_mode; layout_modes)
+        {
+            data_str ~= layout_mode.short_name ~ "\0";
+        }
+
+        data = data_str;
+
+        auto res = gs.db_marks.put(null, &key, &data);
+        if (res != 0)
+        {
+            throw new Exception("Oh, no, can't to write keybar settings");
+        }
+    }
+}
+
+void
+load_keybar_settings(GlobalState gs, KeyBar_Buttons keybar)
+{
+    with(keybar)
+    {
+        Dbt key, data;
+        string keybar_settings_str = "keybar_settings";
+        key = keybar_settings_str;
+
+        auto res = gs.db_marks.get(null, &key, &data);
+        if (res == 0)
+        {
+            string data_str = data.to!(string);
+            changer = *cast(LayoutChanger*)(data_str[0..changer.sizeof].ptr);
+            data_str = data_str[changer.sizeof..$];
+            ssize_t pos;
+            while ( (pos = data_str.indexOf("\0")) >= 0 )
+            {
+                layout_modes ~= &layouts[data_str[0..pos]];
+                data_str = data_str[pos+1..$];
+            }
+        }
+        else
+        {
+            layout_modes ~= &layouts["us(basic)"];
+            version (Posix)
+            {
+                string lc_messages = setlocale(LC_MESSAGES, null).fromStringz().idup();
+                writefln("lc_messages=%s", lc_messages);
+                if (lc_messages == "" || lc_messages == "C")
+                    lc_messages = environment["LANG"];
+                writefln("lc_messages=%s", lc_messages);
+                if (lc_messages.length > 3 && lc_messages[0..3] == "ru_")
+                {
+                    layout_modes ~= &layouts["ru(winkeys)"];
+                }
+            }
+            changer = LayoutChanger.LeftWin;
+            keybar_settings_needed = true;
         }
     }
 }

@@ -347,7 +347,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                 }
                                 break;
                         }
-                        writefln("BackSpace");
+                        //writefln("BackSpace");
                         //writefln("buf_r2=%s", buf[buf_r..max_r]);
                     }
                     else if (prebuf[i] == '\x09') //Tab
@@ -429,7 +429,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                     else newline++;
                                     ssize_t wl = buf[newline..buf_r].myWalkLength();
 
-                                    writefln("\\r wl = %d", wl);
+                                    //writefln("\\r wl = %d", wl);
                                     while ( wl%altmode.cols != 0 )
                                     {
                                         if (buf_r > 0)
@@ -1691,7 +1691,7 @@ process_escape_sequences(CMDGlobalState cgs,
                         case 'K':
                             /*Select user mapping - the map that is loaded by
                               the utility mapscrn(8).*/
-                            break;
+                                break;
                         default:
                             writefln("UNKNOWN Escape Sequence \"ESC # %c\"", prebuf[i]);
                             break;
@@ -1726,6 +1726,7 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
         //writefln("buf.length-buf_r = %d", buf.length-buf_r);
         auto r1 = read(fd, prebuf[prebuf_r..$].ptr, buf.length-prebuf_r-buf_r-16);
         auto buf_length_was = buf.length-buf_r;
+        bool buffer_full = (r1 >= buf.length-prebuf_r-buf_r-16);
 
         if(buf.length < buf_r) buf_r = buf.length-1;
 
@@ -1763,7 +1764,7 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                         ssize_t sym = buf[0..r].lastIndexOf("\n");
                         if (sym >= 0) 
                         {
-                            writefln("Split_r by newline");
+                            //writefln("Split_r by newline");
                             split_r = 0+sym+1;
                         }
                         else if (r1 < buf_length_was) split_r = r;
@@ -1786,7 +1787,7 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                                             break;
                                         }
                                     }
-                                    writefln("Split_r by symbol");
+                                    //writefln("Split_r by symbol");
                                 }
                             }
                         }
@@ -1807,7 +1808,7 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                             {
                                 string line = buf[from..i].idup();
 
-                                writefln("line: %s", line);
+                                //writefln("line: %s", line);
                                 if ( exists(line) )
                                 {
                                     line = buildNormalizedPath(absolutePath(expandTilde(line)));
@@ -1833,7 +1834,7 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                                                 buf[from..i+1].idup(),
                                                 attrs[from_a..a+1]));
                                     data = ds;
-                                    auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
+                                    auto res = command_output_put(cgs, &key, &data);
                                     if (res != 0)
                                     {
                                         throw new Exception("DB command out not written");
@@ -1877,12 +1878,18 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                                     buf[from..split_r].idup(),
                                     attrs[from_a..attrs_split_r]));
                         data = ds;
-                        auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
+                        auto res = command_output_put(cgs, &key, &data);
                         if (res != 0)
                         {
                             throw new Exception("DB command out not written");
                         }
                         cgs.OIT++;
+
+                        if (!buffer_full)
+                        {
+                            cgs.commit();
+                            cgs.recommit();
+                        }
                     }
 
                     //writefln("r=%d, split_r=%d, buf_r=%d", r, split_r, buf_r);
@@ -1953,9 +1960,6 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                     //writefln("split_r = %d, r = %d, max_r = %d, buf_r=%d", split_r, r, max_r, buf_r);
                     if (split_r < r && max_r > 0 && !select)
                     {
-                        cgs.commit();
-                        cgs.recommit();
-
                         if (out_id1 == 0)
                         {
                             out_id++;
@@ -1970,12 +1974,18 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                                     buf[0..max_r].idup(),
                                     attrs[0..$]));
                         data = ds;
-                        auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
+                        auto res = command_output_put(cgs, &key, &data);
                         if (res != 0)
                         {
                             throw new Exception("DB command out not written");
                         }
                         cgs.OIT++;
+
+                        if (!buffer_full)
+                        {
+                            cgs.commit();
+                            cgs.recommit();
+                        }
                     }
                     break;
 
@@ -1995,12 +2005,18 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
                                     buffer,
                                     alt_attrs));
                         data = ds;
-                        auto res = cgs.db_command_output.put(cgs.txn, &key, &data);
+                        auto res = command_output_put(cgs, &key, &data);
                         if (res != 0)
                         {
                             throw new Exception("DB command out not written");
                         }
                         cgs.OIT++;
+
+                        if (!buffer_full)
+                        {
+                            cgs.commit();
+                            cgs.recommit();
+                        }
                     }
                     break;
             }
@@ -2182,6 +2198,9 @@ IFS="$OLD_IFS"
             select_files = true;
         }
 
+        environment["TERM"] = "rxvt-unicode";
+        environment["COLORTERM"] = "rxvt-xpm";
+
         immutable(char) *bash = "/bin/bash".toStringz();
         immutable(char) *c_opt = "-c".toStringz();
         immutable(char) *command_z = command.toStringz();
@@ -2329,6 +2348,7 @@ IFS="$OLD_IFS"
                 eof += process_input(cgs, cwd, new_id, 
                         out_id, mode, workmode1, altmode,
                         fdstdout, OutPipe.STDOUT);
+                tid.send(thisTid, "update terminal");
             }
             if (FD_ISSET(fdstderr, &rfds))
             {
@@ -2336,6 +2356,7 @@ IFS="$OLD_IFS"
                 eof += process_input(cgs, cwd, new_id, 
                         out_id, mode, workmode2, altmode,
                         fdstderr, OutPipe.STDERR);
+                tid.send(thisTid, "update terminal");
             }
             if ( !stdin_closed && FD_ISSET(fdstdin, &wfds) )
             {

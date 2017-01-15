@@ -1229,7 +1229,7 @@ check_scanners(GlobalState gs)
                     //writefln("new_id=%s, tid=%s", new_id, tid);
                     if (msg != "command_id")
                     {
-                        throw new Exception("Unknown Command");
+                        throw new Exception("Unknown Command "~msg);
                     }
 
                     gs.tid_by_command_id[new_id] = tid;
@@ -1239,6 +1239,16 @@ check_scanners(GlobalState gs)
                         gs.command_line.command_in_focus_id = new_id;
                         gs.keybar.input_mode = true;
                     }
+                },
+                (Tid tid, string msg)
+                {
+                    //writefln("new_id=%s, tid=%s", new_id, tid);
+                    if (msg != "update terminal")
+                    {
+                        throw new Exception("Unknown Command "~msg);
+                    }
+
+                    gs.command_line.last_redraw = 0;
                 },
                 (shared(Throwable) exc) 
                 { 

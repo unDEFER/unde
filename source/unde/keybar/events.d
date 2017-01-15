@@ -30,7 +30,6 @@ void process_modifiers_down(GlobalState gs, int scancode)
                 break;
         case SDL_SCANCODE_LALT:
                 gs.modifiers |= Modifiers.Left_Alt;
-                gs.modifiers |= Modifiers.Right_Alt; //FIXME REMOVE ME
                 break;
         case SDL_SCANCODE_RALT:
                 gs.modifiers |= Modifiers.Right_Alt;
@@ -47,7 +46,7 @@ void process_modifiers_down(GlobalState gs, int scancode)
         case SDL_SCANCODE_SPACE:
                 gs.modifiers |= Modifiers.Space;
                 break;
-        case SDL_SCANCODE_MENU:
+        case SDL_SCANCODE_APPLICATION:
                 gs.modifiers |= Modifiers.Menu;
                 break;
         case SDL_SCANCODE_SCROLLLOCK:
@@ -56,6 +55,15 @@ void process_modifiers_down(GlobalState gs, int scancode)
         default:
                 break;
     }
+
+    if ((gs.modifiers & gs.keybar.changer) == gs.keybar.changer)
+    {
+        gs.keybar.mode++;
+        if (gs.keybar.mode >= gs.keybar.layout_modes.length)
+            gs.keybar.mode = 0;
+    }
+
+    update_letters(gs);
 }
 
 void process_modifiers_up(GlobalState gs, int scancode)
@@ -76,7 +84,6 @@ void process_modifiers_up(GlobalState gs, int scancode)
             break;
         case SDL_SCANCODE_LALT:
             gs.modifiers &= ~Modifiers.Left_Alt;
-            gs.modifiers &= ~Modifiers.Right_Alt; //FIXME REMOVE ME
             break;
         case SDL_SCANCODE_RALT:
             gs.modifiers &= ~Modifiers.Right_Alt;
@@ -93,7 +100,7 @@ void process_modifiers_up(GlobalState gs, int scancode)
         case SDL_SCANCODE_SPACE:
             gs.modifiers &= ~Modifiers.Space;
             break;
-        case SDL_SCANCODE_MENU:
+        case SDL_SCANCODE_APPLICATION:
             gs.modifiers &= ~Modifiers.Menu;
             break;
         case SDL_SCANCODE_SCROLLLOCK:
@@ -130,13 +137,6 @@ void process_event(GlobalState gs, ref SDL_Event event, KeyHandler *kh)
                         }
                     }
                 }
-            }
-
-            if (gs.modifiers & gs.keybar.changer)
-            {
-                gs.keybar.mode++;
-                if (gs.keybar.mode >= gs.keybar.layout_modes.length)
-                    gs.keybar.mode = 0;
             }
             break;
         case SDL_KEYUP:

@@ -66,6 +66,15 @@ process_event(GlobalState gs, SDL_Event event)
     auto result = unde.command_line.events.process_event(gs, event);
     if (result == CommandLineEventHandlerResult.Pass)
     {
+        foreach (uipage; gs.uipages)
+        {
+            if (uipage.show)
+            {
+                uipage.process_event(gs, event);
+                return;
+            }
+        }
+
         final switch (gs.state)
         {
             case State.FileManager:
@@ -129,7 +138,7 @@ void
 make_screenshot(GlobalState gs) { 
     SDL_Surface *screenshot; 
     screenshot = SDL_CreateRGBSurface(SDL_SWSURFACE,
-            gs.screen.w, 
+            gs.screen.w+32*6, 
             gs.screen.h, 
             32, 0x00FF0000, 0X0000FF00, 0X000000FF, 0XFF000000); 
     SDL_RenderReadPixels(gs.renderer, null, SDL_PIXELFORMAT_ARGB8888, 

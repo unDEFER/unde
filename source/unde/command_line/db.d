@@ -21,7 +21,7 @@ struct command_data
     int status;
 }
 
-package string
+string
 get_key_for_command(command_key k)
 {
     string key_string;
@@ -31,7 +31,7 @@ get_key_for_command(command_key k)
     return key_string;
 }
 
-package void
+void
 parse_key_for_command(in string key_string, out command_key k)
 {
     ubyte[k.id.sizeof] id = (cast(ubyte[])key_string)[$-k.id.sizeof..$]; 
@@ -52,7 +52,7 @@ unittest
                 cmd_key.cwd, cmd_key2.cwd, cmd_key.id, cmd_key2.id));
 }
 
-package string
+string
 get_data_for_command(command_data d)
 {
     string data_string;
@@ -63,7 +63,7 @@ get_data_for_command(command_data d)
     return data_string;
 }
 
-package void
+void
 parse_data_for_command(string data_string, out command_data d)
 {
     d.status = *cast(int*)data_string[$-d.status.sizeof..$];
@@ -155,7 +155,7 @@ struct command_out_data
     }
 }
 
-package string
+string
 get_key_for_command_out(command_out_key k)
 {
     string key_string;
@@ -165,7 +165,7 @@ get_key_for_command_out(command_out_key k)
     return key_string;
 }
 
-package void
+void
 parse_key_for_command_out(string key_string, out command_out_key k)
 {
     ubyte[k.out_id.sizeof] out_id = (cast(ubyte[])key_string)[$-k.out_id.sizeof..$]; 
@@ -185,7 +185,7 @@ unittest
     assert(cmd_key == cmd_key2);
 }
 
-package string
+string
 get_data_for_command_out(command_out_data d)
 {
     string data_string;
@@ -216,7 +216,7 @@ get_data_for_command_out(command_out_data d)
     return data_string;
 }
 
-package void
+void
 parse_data_for_command_out(string data_string, out command_out_data d)
 {
     d.vers = *cast(CommandsOutVersion*)data_string[0..d.vers.sizeof];

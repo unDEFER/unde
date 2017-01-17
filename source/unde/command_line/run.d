@@ -2032,7 +2032,7 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
 }
 
 private int
-fork_command(CMDGlobalState cgs, string cwd, string command, 
+fork_command(CMDGlobalState cgs, string cwd, string full_cwd, string command, 
         winsize ws, immutable string[] selection, Tid tid)
 {
     cgs.recommit();
@@ -2153,8 +2153,8 @@ cwd, id
         command = command[1..$];
     }
 
-    if (!cwd.isDir()) cwd = cwd[0..cwd.lastIndexOf("/")];
-    chdir(cwd);
+    if (!full_cwd.isDir()) full_cwd = full_cwd[0..cwd.lastIndexOf("/")];
+    chdir(full_cwd);
 
     bool select_files;
     version(WithoutTTY)
@@ -2463,7 +2463,7 @@ IFS="$OLD_IFS"
 }
 
 private void
-command(string cwd, string command, winsize ws,
+command(string cwd, string full_cwd, string command, winsize ws,
         immutable string[] selection, Tid tid)
 {
     CMDGlobalState cgs = new CMDGlobalState();
@@ -2472,7 +2472,7 @@ command(string cwd, string command, winsize ws,
         {
             destroy(cgs);
         }
-        fork_command(cgs, cwd, command, ws, selection, tid);
+        fork_command(cgs, cwd, full_cwd, command, ws, selection, tid);
         cgs.commit();
     } catch (shared(Throwable) exc) {
         send(tid, exc);
@@ -2573,7 +2573,7 @@ private bool
 write_command_and_response(GlobalState gs, string command, string error)
 {
     gs.txn = null;
-    string cwd = gs.full_current_path;
+    string cwd = gs.current_path;
     ulong id = get_max_id_of_cwd(gs, cwd);
     ulong new_id = id+1;
     if (id > 0)
@@ -2744,7 +2744,7 @@ run_command(GlobalState gs, string command)
     if (command.indexOf("${SELECTED[@]}") >= 0)
         selection = gs.selection_hash.keys;
     writefln("Start command %s", command);
-    auto tid = spawn(&.command, gs.full_current_path, command,
+    auto tid = spawn(&.command, gs.current_path, gs.full_current_path, command,
            gs.command_line.ws, selection.idup(), thisTid);
     gs.commands[tid] = command;
     return 0;

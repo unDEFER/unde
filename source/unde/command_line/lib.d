@@ -72,7 +72,7 @@ fix_bottom_line(GlobalState gs)
         nav_out_id = 0;
         nav_skip_cmd_id = 0;
 
-        cwd = gs.full_current_path;
+        cwd = gs.current_path;
 
         Dbc cursor = gs.db_commands.cursor(null, 0);
         scope(exit) cursor.close();
@@ -301,7 +301,7 @@ selection_to_buffer(GlobalState gs)
 
         string selection = "";
 
-        cwd = gs.full_current_path;
+        cwd = gs.current_path;
 
         Dbc cursor = gs.db_commands.cursor(null, 0);
         scope(exit) cursor.close();
@@ -860,7 +860,7 @@ redraw:
 
                 with (gs.command_line)
                 {
-                    cwd = gs.full_current_path;
+                    cwd = gs.current_path;
                     Dbc cursor = gs.db_commands.cursor(null, 0);
                     scope(exit) cursor.close();
 
@@ -1711,7 +1711,7 @@ hist_up(GlobalState gs)
 {
     with (gs.command_line)
     {
-        cwd = gs.full_current_path;
+        cwd = gs.current_path;
         Dbc cursor = gs.db_commands.cursor(null, 0);
         scope(exit) cursor.close();
 
@@ -1773,7 +1773,7 @@ hist_down(GlobalState gs)
 {
     with (gs.command_line)
     {
-        cwd = gs.full_current_path;
+        cwd = gs.current_path;
         Dbc cursor = gs.db_commands.cursor(null, 0);
         scope(exit) cursor.close();
 

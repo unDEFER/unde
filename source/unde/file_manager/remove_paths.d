@@ -5,6 +5,7 @@ import unde.lsblk;
 import unde.lib;
 import unde.scan;
 import unde.path_mnt;
+import unde.command_line.db;
 
 import std.stdio;
 import std.conv;
@@ -87,9 +88,11 @@ remove_and_save_errors(FMGlobalState rgs, PathMnt path, bool dir=false)
     try
     {
         if (dir)
-	    rmdir(path);
+            rmdir(path);
         else
-	    remove(path);
+            remove(path);
+
+
     }
     catch (FileException e)
     {
@@ -98,7 +101,7 @@ remove_and_save_errors(FMGlobalState rgs, PathMnt path, bool dir=false)
 }
 
 package long
-remove_path(FMGlobalState rgs, PathMnt path)
+remove_path(FMGlobalState rgs, PathMnt path, bool root = true)
 {
     rgs.recommit();
     //writefln("remove_path(%s)", path);
@@ -123,6 +126,29 @@ remove_path(FMGlobalState rgs, PathMnt path)
         writefln("%s", e);
         save_errors(rgs, path, e);
         return 0;
+    }
+
+    if (root)
+    {
+        string path0 = path.get_key(rgs.lsblk);
+        foreach (char c; "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        {
+            string m = "" ~ c;
+            Dbt key, data;
+            key = m;
+            auto res = rgs.db_marks.get(null, &key, &data);
+            if (res == 0)
+            {
+                Mark mark = data.to!(Mark);
+                string mpath = from_char_array(mark.path);
+                if (mpath.startsWith(path0))
+                {
+                    res = rgs.db_marks.del(null, &key);
+                    if (res != 0)
+                        throw new Exception("Mark info to marks-db not deleted");
+                }
+            }
+        }
     }
 
     if (de.isSymlink)
@@ -152,48 +178,136 @@ remove_path(FMGlobalState rgs, PathMnt path)
         {
             if (name != path)
             {
-                long f = remove_path(rgs, path.next(name));
+                long f = remove_path(rgs, path.next(name), false);
                 files += f;
-
-                if (exists(path))
-                {
-                    Dbt key, data;
-                    string path0 = path.get_key(rgs.lsblk);
-                    key = path0;
-                    //writefln("GET %s", info.uuid ~ subpath);
-                    auto res = rgs.db_map.get(rgs.txn, &key, &data);
-                    if (res == 0)
-                    {
-                        RectSize rectsize = data.to!(RectSize);
-                        if ( rectsize.files >= f )
-                        {
-                            rectsize.files -= f;
-
-                            data = rectsize;
-                            //writefln("WRITE - %s - %s", path0, rectsize);
-                            res = rgs.db_map.put(rgs.txn, &key, &data);
-                            if (res != 0)
-                                throw new Exception("Path info to map-db not written");
-                            rgs.OIT++;
-                        }
-                    }
-                } else
-                {
-                    Dbt key;
-                    string path0 = path.get_key(rgs.lsblk);
-                    key = path0;
-                    auto res = rgs.db_map.del(rgs.txn, &key);
-                    if (res == 0)
-                    {
-                        throw new Exception("Path info from map-db not removed");
-                    }
-                    rgs.OIT++;
-                }
 
             }
         }
 
         remove_and_save_errors(rgs, path, true);
+
+        if (exists(path))
+        {
+            Dbt key, data;
+            string path0 = path.get_key(rgs.lsblk);
+            key = path0;
+            //writefln("GET %s", info.uuid ~ subpath);
+            auto res = rgs.db_map.get(rgs.txn, &key, &data);
+            if (res == 0)
+            {
+                RectSize rectsize = data.to!(RectSize);
+                if ( rectsize.files >= files )
+                {
+                    rectsize.files -= files;
+
+                    data = rectsize;
+                    //writefln("WRITE - %s - %s", path0, rectsize);
+                    res = rgs.db_map.put(rgs.txn, &key, &data);
+                    if (res != 0)
+                        throw new Exception("Path info to map-db not written");
+                    rgs.OIT++;
+                }
+            }
+        }
+        else
+        {
+            string path0 = path.get_key(rgs.lsblk);
+
+            writefln("path0=%s", path0);
+            Dbc cursor2;
+            cursor2 = rgs.db_command_output.cursor(rgs.txn, 0);
+            scope(exit) cursor2.close();
+
+            Dbt key2, data2;
+            string ks = get_key_for_command_out(command_out_key(path0, 0, 0));
+            key2 = ks;
+            auto res = cursor2.get(&key2, &data2, DB_SET_RANGE);
+            if (res == 0)
+            {
+                do
+                {
+                    string key_string = key2.to!(string);
+                    command_out_key cmd_out_key;
+                    parse_key_for_command_out(key_string, cmd_out_key);
+
+                    writefln("OUTPUT %s - %s", cmd_out_key.cwd, path0);
+                    if (cmd_out_key.cwd == path0)
+                    {
+                        rgs.OIT++;
+                        if (rgs.is_time_to_recommit())
+                        {
+                            cursor2.close();
+                            rgs.recommit();
+                            cursor2 = rgs.db_command_output.cursor(rgs.txn, 0);
+                            res = cursor2.get(&key2, &data2, DB_SET_RANGE);
+                            if (res == DB_NOTFOUND)
+                            {
+                                goto out1;
+                            }
+                        }
+
+                        cursor2.del();
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                } while (cursor2.get(&key2, &data2, DB_NEXT) == 0);
+            }
+out1:
+
+            Dbc cursor3;
+            cursor3 = rgs.db_commands.cursor(rgs.txn, 0);
+            scope(exit) cursor3.close();
+
+            Dbt key3, data3;
+            string ks3 = get_key_for_command(command_key(path0, 0));
+            key3 = ks3;
+            res = cursor3.get(&key3, &data3, DB_SET_RANGE);
+            if (res == 0)
+            {
+                do
+                {
+                    string key_string = key3.to!(string);
+                    command_key cmd_key;
+                    parse_key_for_command(key_string, cmd_key);
+
+                    if (cmd_key.cwd == path0)
+                    {
+                        rgs.OIT++;
+                        if (rgs.is_time_to_recommit())
+                        {
+                            cursor3.close();
+                            rgs.recommit();
+                            cursor3 = rgs.db_commands.cursor(rgs.txn, 0);
+                            res = cursor3.get(&key3, &data3, DB_SET_RANGE);
+                            if (res == DB_NOTFOUND)
+                            {
+                                goto out2;
+                            }
+                        }
+
+                        cursor3.del();
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                } while (cursor3.get(&key3, &data3, DB_NEXT) == 0);
+            }
+
+out2:
+            Dbt key;
+            key = path0;
+            res = rgs.db_map.del(rgs.txn, &key);
+            if (res != 0)
+            {
+                throw new Exception("Path info from map-db not removed");
+            }
+            rgs.OIT++;
+        }
         return files;
     }
     else if (de.isFile)

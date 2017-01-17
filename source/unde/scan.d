@@ -5,6 +5,7 @@ import unde.lsblk;
 import unde.path_mnt;
 import unde.slash;
 import unde.marks;
+import unde.command_line.db;
 
 import std.stdio;
 import std.conv;
@@ -106,47 +107,195 @@ copy_map_of_path(ScannerGlobalState sgs, PathMnt path,
 {
     string copy_to0 = copy_to_mnt.get_key(sgs.lsblk);
 
-    Dbc cursor = sgs.db_map.cursor(sgs.txn, 0);
-    scope(exit) cursor.close();
-
-    string path0 = path.get_key(sgs.lsblk);
-    Dbt key = path0;
-    Dbt data;
-    auto res = cursor.get(&key, &data, DB_SET_RANGE);
-    if (res != 0) return;
-
-    int removed = 0;    
-    writefln("Start copy map %s to %s", path, copy_to_mnt);
-    do
+begin:
+    try
     {
-        receive_copy_map(sgs);
-        string path1 = key.to!string();
-        if (path1.startsWith(path0))
+        Dbc cursor = sgs.db_map.cursor(sgs.txn, 0);
+        scope(exit) cursor.close();
+
+        string path0 = path.get_key(sgs.lsblk);
+        Dbt key = path0;
+        Dbt data;
+        auto res = cursor.get(&key, &data, DB_SET_RANGE);
+        if (res != 0) return;
+
+        int removed = 0;    
+        writefln("Start copy map %s to %s", path, copy_to_mnt);
+        do
         {
-            string path2 = path1.replace(path0, copy_to0);
-            Dbt key2 = path2;
-            //writefln("Write %s", path2.replace("\0", SL));
-            res = sgs.db_map.put(sgs.txn, &key2, &data);
-            if (res != 0)
-                throw new Exception("Path info to map-db not written");
-            sgs.OIT++;
-            if (sgs.OIT > 100)
+            receive_copy_map(sgs);
+            string path1 = key.to!string();
+            if (path1.startsWith(path0))
             {
-                cursor.close();
-                sgs.recommit();
-                cursor = sgs.db_map.cursor(sgs.txn, 0);
-                res = cursor.get(&key, &data, DB_SET_RANGE);
-                if (res != 0) return;
+                string path2 = path1.replace(path0, copy_to0);
+                Dbt key2 = path2;
+                //writefln("Write %s", path2.replace("\0", SL));
+                res = sgs.db_map.put(sgs.txn, &key2, &data);
+                if (res != 0)
+                    throw new Exception("Path info to map-db not written");
+                sgs.OIT++;
+                if (sgs.OIT > 100)
+                {
+                    cursor.close();
+                    sgs.recommit();
+                    cursor = sgs.db_map.cursor(sgs.txn, 0);
+                    res = cursor.get(&key, &data, DB_SET_RANGE);
+                    if (res != 0) return;
+                }
+            }
+            else break;
+            if (move)
+            {    
+                Dbc cursor2;
+                cursor2 = sgs.db_command_output.cursor(sgs.txn, 0);
+                scope(exit) cursor2.close();
+
+                Dbt key2, data2;
+                string ks = get_key_for_command_out(command_out_key(path1, 0, 0));
+                key2 = ks;
+                res = cursor2.get(&key2, &data2, DB_SET_RANGE);
+                if (res == 0)
+                {
+                    do
+                    {
+                        string key_string = key2.to!(string);
+                        command_out_key cmd_out_key;
+                        parse_key_for_command_out(key_string, cmd_out_key);
+
+                        if (cmd_out_key.cwd == path1)
+                        {
+                            sgs.OIT++;
+                            if (sgs.is_time_to_recommit())
+                            {
+                                cursor.close();
+                                sgs.recommit();
+                                cursor = sgs.db_map.cursor(sgs.txn, 0);
+                                res = cursor.get(&key, &data, DB_SET_RANGE);
+                                if (res != 0) return;
+
+                                cursor2.close();
+                                sgs.recommit();
+                                cursor2 = sgs.db_command_output.cursor(sgs.txn, 0);
+                                res = cursor2.get(&key2, &data2, DB_SET_RANGE);
+                                if (res == DB_NOTFOUND)
+                                {
+                                    return;
+                                }
+                            }
+
+                            string path2 = path1.replace(path0, copy_to0);
+                            ks = get_key_for_command_out(command_out_key(path2, 
+                                        cmd_out_key.cmd_id, cmd_out_key.out_id));
+                            Dbt key3 = ks;
+
+                            res = sgs.db_command_output.put(sgs.txn, &key3, &data2);
+                            if (res != 0)
+                                throw new Exception("Info to command out-db not written");
+
+                            cursor2.del();
+                        }
+                        else
+                        {
+                            break;
+                        }
+
+                    } while (cursor2.get(&key2, &data2, DB_NEXT) == 0);
+                }
+
+                Dbc cursor3;
+                cursor3 = sgs.db_commands.cursor(sgs.txn, 0);
+                scope(exit) cursor3.close();
+
+                Dbt key3, data3;
+                string ks3 = get_key_for_command(command_key(path1, 0));
+                key3 = ks3;
+                res = cursor3.get(&key3, &data3, DB_SET_RANGE);
+                if (res == 0)
+                {
+                    do
+                    {
+                        string key_string = key3.to!(string);
+                        command_key cmd_key;
+                        parse_key_for_command(key_string, cmd_key);
+
+                        if (cmd_key.cwd == path1)
+                        {
+                            sgs.OIT++;
+                            if (sgs.is_time_to_recommit())
+                            {
+                                cursor.close();
+                                sgs.recommit();
+                                cursor = sgs.db_map.cursor(sgs.txn, 0);
+                                res = cursor.get(&key, &data, DB_SET_RANGE);
+                                if (res != 0) return;
+
+                                cursor3.close();
+                                sgs.recommit();
+                                cursor3 = sgs.db_commands.cursor(sgs.txn, 0);
+                                res = cursor3.get(&key3, &data3, DB_SET_RANGE);
+                                if (res == DB_NOTFOUND)
+                                {
+                                    return;
+                                }
+                            }
+
+                            string path2 = path1.replace(path0, copy_to0);
+                            ks3 = get_key_for_command(command_key(path2, 
+                                        cmd_key.id));
+                            Dbt key4 = ks3;
+
+                            res = sgs.db_commands.put(sgs.txn, &key4, &data3);
+                            if (res != 0)
+                                throw new Exception("Info to command out-db not written");
+
+                            cursor3.del();
+                        }
+                        else
+                        {
+                            break;
+                        }
+
+                    } while (cursor3.get(&key3, &data3, DB_NEXT) == 0);
+                }
+
+                cursor.del();
+                sgs.OIT++;
             }
         }
-        else break;
+        while (cursor.get(&key, &data, DB_NEXT) == 0);
+
         if (move)
         {
-            cursor.del();
-            sgs.OIT++;
+            foreach (char c; "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+            {
+                string m = "" ~ c;
+                key = m;
+                res = sgs.db_marks.get(null, &key, &data);
+                if (res == 0)
+                {
+                    Mark mark = data.to!(Mark);
+                    string mpath = from_char_array(mark.path);
+                    if (mpath.startsWith(path0))
+                    {
+                        mpath = mpath.replace(path0, copy_to0);
+                        mark.path = to_char_array!MARKS_PATH_MAX(mpath);
+                        data = mark;
+                        res = sgs.db_marks.put(null, &key, &data);
+                        if (res != 0)
+                            throw new Exception("Mark info to marks-db not written");
+                    }
+                }
+            }
         }
     }
-    while (cursor.get(&key, &data, DB_NEXT) == 0);
+    catch (DbDeadlockException exp)
+    {
+        writefln("Oops deadlock, retry");
+        sgs.abort();
+        sgs.recommit();
+        goto begin;
+    }
+
     writefln("End copy map");
 }
 

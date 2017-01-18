@@ -93,7 +93,16 @@ command_line_left(GlobalState gs)
         else
         {
             if (pos > 0)
-                pos -= command.strideBack(pos);
+            {
+                if (pos >= command.length)
+                {
+                    pos--;
+                }
+                else
+                {
+                    pos -= command.strideBack(pos);
+                }
+            }
         }
     }
 }
@@ -296,11 +305,25 @@ process_event(GlobalState gs, ref SDL_Event event)
                     }
                     else
                     {
-                        command = (command[0..pos] ~
-                            input ~
-                            command[pos..$]).idup();
+                        if (input[0] == char.init)
+                        {
+                            if (input[1] == '1')
+                            {
+                                shift_selected(gs);
+                            }
+                            else
+                            {
+                                change_layout_selected(gs);
+                            }
+                        }
+                        else
+                        {
+                            command = (command[0..pos] ~
+                                input ~
+                                command[pos..$]).idup();
+                            pos += input.length;
+                        }
                     }
-                    pos += input.length;
                     last_redraw = 0;
                 }
                 else if (command_in_focus_id > 0)
@@ -316,7 +339,23 @@ process_event(GlobalState gs, ref SDL_Event event)
             {
                 with (gs.command_line)
                 {
-                    if (ctrl_mode ^ gs.ctrl)
+                    if (enter && gs.mouse_screen_x > cmd_rect.x &&
+                            gs.mouse_screen_x < cmd_rect.x + cmd_rect.w &&
+                            gs.mouse_screen_y > cmd_rect.y &&
+                            gs.mouse_screen_y < cmd_rect.y + cmd_rect.h)
+                    {
+                        if (cmd_mouse_pos > cmd_first_click)
+                        {
+                            cmd_start_selection = cmd_first_click;
+                            cmd_end_selection = cmd_mouse_pos;
+                        }
+                        else
+                        {
+                            cmd_start_selection = cmd_mouse_pos;
+                            cmd_end_selection = cmd_first_click;
+                        }
+                    }
+                    else if (ctrl_mode ^ gs.ctrl)
                     {
                         if (mouse > first_click)
                         {
@@ -353,7 +392,14 @@ process_event(GlobalState gs, ref SDL_Event event)
                     gs.command_line.moved_while_click = 0;
                     with (gs.command_line)
                     {
-                        if (ctrl_mode ^ gs.ctrl)
+                        if (enter && gs.mouse_screen_x > cmd_rect.x &&
+                                gs.mouse_screen_x < cmd_rect.x + cmd_rect.w &&
+                                gs.mouse_screen_y > cmd_rect.y &&
+                                gs.mouse_screen_y < cmd_rect.y + cmd_rect.h)
+                        {
+                            cmd_first_click = cmd_mouse_pos;
+                        }
+                        else if (ctrl_mode ^ gs.ctrl)
                         {
                             first_click = mouse;
                         }
@@ -379,7 +425,32 @@ process_event(GlobalState gs, ref SDL_Event event)
                         with (gs.command_line)
                         {
                             gs.mouse_buttons &= ~unDE_MouseButtons.Left;
-                            if (terminal)
+                            if (enter && gs.mouse_screen_x > cmd_rect.x &&
+                                    gs.mouse_screen_x < cmd_rect.x + cmd_rect.w &&
+                                    gs.mouse_screen_y > cmd_rect.y &&
+                                    gs.mouse_screen_y < cmd_rect.y + cmd_rect.h)
+                            {
+                                if (!moved_while_click || command == "")
+                                {
+                                    cmd_start_selection = -1;
+                                    cmd_end_selection = -1;
+                                }
+                                else
+                                {
+                                    if (cmd_mouse_pos > cmd_first_click)
+                                    {
+                                        cmd_start_selection = cmd_first_click;
+                                        cmd_end_selection = cmd_mouse_pos;
+                                    }
+                                    else
+                                    {
+                                        cmd_start_selection = cmd_mouse_pos;
+                                        cmd_end_selection = cmd_first_click;
+                                    }
+                                    cmd_selection_to_buffer(gs);
+                                }
+                            }
+                            else if (terminal)
                             {
                                 if (!moved_while_click)
                                 {

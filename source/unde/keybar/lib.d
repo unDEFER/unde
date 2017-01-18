@@ -89,6 +89,8 @@ class KeyBar_Buttons
     Layout*[] layout_modes;
     ssize_t mode;
     LayoutChanger changer;
+    long last_change;
+    long last_shift;
 
     string[][3] *letters;
 

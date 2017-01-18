@@ -5,6 +5,7 @@ import unde.path_mnt;
 import unde.lib;
 import unde.slash;
 import unde.font;
+import unde.keybar.lib;
 import unde.command_line.db;
 import unde.command_line.run;
 import unde.command_line.delete_command;
@@ -424,6 +425,108 @@ selection_to_buffer(GlobalState gs)
         SDL_SetClipboardText(selection.toStringz());
     }
 }
+
+void cmd_selection_to_buffer(GlobalState gs)
+{
+    with (gs.command_line)
+    {
+        string selection = command[cmd_start_selection..cmd_end_selection + command.mystride(cmd_end_selection)];
+        SDL_SetClipboardText(selection.toStringz());
+    }
+}
+
+void shift_selected(GlobalState gs)
+{
+    with (gs.command_line)
+    {
+        if (cmd_start_selection < 0 || cmd_end_selection < 0) return;
+        if (cmd_end_selection > command.length)
+            cmd_end_selection = command.length - 1 - command.strideBack(command.length - 1);
+        string converted;
+        for (ssize_t i=cmd_start_selection; i < cmd_end_selection + command.mystride(cmd_end_selection); i+=command.stride(i))
+        {
+            string chr = command[i..i+command.stride(i)];
+            if (chr.toLower() == chr)
+            {
+                chr = chr.toUpper();
+            }
+            else
+                chr = chr.toLower();
+
+            converted ~= chr;
+        }
+
+        command = command[0..cmd_start_selection] ~ converted ~ command[cmd_end_selection + command.mystride(cmd_end_selection)..$];
+    }
+}
+
+bool find_chr(string chr, string[][3] *letters, ref ButtonPos buttonpos)
+{
+    for (buttonpos.i = 0; buttonpos.i < 3; buttonpos.i++)
+    {
+        for (buttonpos.pos = 0; buttonpos.pos <
+                (*letters)[buttonpos.i].length; buttonpos.pos++)
+        {
+            if ((*letters)[buttonpos.i][buttonpos.pos] == chr)
+                return true;
+        }
+    }
+    return false;
+}
+
+void change_layout_selected(GlobalState gs)
+{
+    with (gs.command_line)
+    {
+        if (cmd_start_selection < 0 || cmd_end_selection < 0) return;
+        if (cmd_end_selection > command.length)
+            cmd_end_selection = command.length - 1 - command.strideBack(command.length - 1);
+        ssize_t end_selection = cmd_end_selection + command.mystride(cmd_end_selection);
+        string converted;
+        for (ssize_t i=cmd_start_selection; i < end_selection; i+=command.stride(i))
+        {
+            string chr = command[i..i+command.stride(i)];
+
+            ssize_t prev_mode = gs.keybar.mode-1;
+            if (prev_mode < 0)
+                prev_mode = gs.keybar.layout_modes.length - 1;
+
+            ButtonPos buttonpos;
+            auto letters = &gs.keybar.layout_modes[prev_mode].letters;
+            if (find_chr(chr, letters, buttonpos))
+            {
+                letters = &gs.keybar.layout_modes[gs.keybar.mode].letters;
+                chr = (*letters)[buttonpos.i][buttonpos.pos];
+            }
+            letters = &gs.keybar.layout_modes[prev_mode].letters_shift;
+            if (find_chr(chr, letters, buttonpos))
+            {
+                letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_shift;
+                chr = (*letters)[buttonpos.i][buttonpos.pos];
+            }
+            letters = &gs.keybar.layout_modes[prev_mode].letters_altgr;
+            if (find_chr(chr, letters, buttonpos))
+            {
+                letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_altgr;
+                chr = (*letters)[buttonpos.i][buttonpos.pos];
+            }
+            letters = &gs.keybar.layout_modes[prev_mode].letters_shift_altgr;
+            if (find_chr(chr, letters, buttonpos))
+            {
+                letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_shift_altgr;
+                chr = (*letters)[buttonpos.i][buttonpos.pos];
+            }
+
+            converted ~= chr;
+        }
+
+        command = command[0..cmd_start_selection] ~ converted ~ command[end_selection..$];
+        cmd_end_selection = cmd_start_selection + converted.length;
+        cmd_end_selection -= command.strideBack(cmd_end_selection);
+        if (pos > cmd_start_selection) pos = command.length;
+    }
+}
+
 
 bool is_command_position(GlobalState gs, string command, ssize_t pos)
 {
@@ -1507,7 +1610,8 @@ redraw:
                     str = search;
 
                 auto tt = gs.text_viewer.font.get_line_from_cache(str, 
-                        9, gs.screen.w-80-ptt.w, line_height, SDL_Color(0xFF, 0xFF, 0xFF, 0xFF));
+                        9, gs.screen.w-80-ptt.w, line_height, SDL_Color(0xFF, 0xFF, 0xFF, 0xFF),
+                        null, cmd_start_selection, cmd_end_selection);
                 if (!tt && !tt.texture)
                 {
                     throw new Exception("Can't create text_surface: "~
@@ -1517,7 +1621,9 @@ redraw:
                 Texture_Tick *ctt;
                 if (!search_mode || hist_pos != 0)
                 {
-                    complete = autocomplete(gs, command[0..pos]);
+                    ssize_t ipos = pos;
+                    if (ipos > command.length) ipos = command.length-1;
+                    complete = autocomplete(gs, command[0..ipos]);
 
                     if (complete.length > 1)
                     {
@@ -1547,6 +1653,8 @@ redraw:
                 rect.y = cast(int)y_off;
                 rect.w = gs.screen.w - 32*2;
                 rect.h = cast(int)(line_height*lines + 8);
+
+                cmd_rect = rect;
 
                 if (complete.length > 1 && complete[0] == '2' && ctt !is null)
                 {
@@ -1585,6 +1693,10 @@ redraw:
                 rect.y = cast(int)(y_off + 4 + line_height*i);
                 rect.w = tt.w;
                 rect.h = tt.h;
+
+                cmd_mouse_pos = get_position_by_chars(
+                        gs.mouse_screen_x - rect.x,
+                        gs.mouse_screen_y - rect.y, tt.chars);
 
                 r = SDL_RenderCopy(gs.renderer, tt.texture, null, &rect);
                 if (r < 0)
@@ -1711,6 +1823,9 @@ hist_up(GlobalState gs)
 {
     with (gs.command_line)
     {
+        cmd_start_selection = -1;
+        cmd_end_selection = -1;
+
         cwd = gs.current_path;
         Dbc cursor = gs.db_commands.cursor(null, 0);
         scope(exit) cursor.close();
@@ -1773,6 +1888,9 @@ hist_down(GlobalState gs)
 {
     with (gs.command_line)
     {
+        cmd_start_selection = -1;
+        cmd_end_selection = -1;
+
         cwd = gs.current_path;
         Dbc cursor = gs.db_commands.cursor(null, 0);
         scope(exit) cursor.close();

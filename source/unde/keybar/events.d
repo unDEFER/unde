@@ -12,8 +12,9 @@ import std.string;
 import std.math;
 import std.range.primitives;
 
-void process_modifiers_down(GlobalState gs, int scancode)
+int process_modifiers_down(GlobalState gs, int scancode)
 {
+    int result = 0;
     switch(scancode)
     {
         case SDL_SCANCODE_LCTRL:
@@ -24,9 +25,23 @@ void process_modifiers_down(GlobalState gs, int scancode)
                 break;
         case SDL_SCANCODE_LSHIFT:
                 gs.modifiers |= Modifiers.Left_Shift;
+                if (SDL_GetTicks() - gs.keybar.last_shift < DOUBLE_DELAY)
+                {
+                    result = 1;
+                    gs.keybar.last_shift = 0;
+                }
+                else
+                    gs.keybar.last_shift = SDL_GetTicks();
                 break;
         case SDL_SCANCODE_RSHIFT:
                 gs.modifiers |= Modifiers.Right_Shift;
+                if (SDL_GetTicks() - gs.keybar.last_shift < DOUBLE_DELAY)
+                {
+                    result = 1;
+                    gs.keybar.last_shift = 0;
+                }
+                else
+                    gs.keybar.last_shift = SDL_GetTicks();
                 break;
         case SDL_SCANCODE_LALT:
                 gs.modifiers |= Modifiers.Left_Alt;
@@ -58,12 +73,22 @@ void process_modifiers_down(GlobalState gs, int scancode)
 
     if ((gs.modifiers & gs.keybar.changer) == gs.keybar.changer)
     {
-        gs.keybar.mode++;
-        if (gs.keybar.mode >= gs.keybar.layout_modes.length)
-            gs.keybar.mode = 0;
+        if (SDL_GetTicks() - gs.keybar.last_change < DOUBLE_DELAY)
+        {
+            result = 2;
+            gs.keybar.last_change = 0;
+        }
+        else
+        {
+            gs.keybar.mode++;
+            if (gs.keybar.mode >= gs.keybar.layout_modes.length)
+                gs.keybar.mode = 0;
+            gs.keybar.last_change = SDL_GetTicks();
+        }
     }
 
     update_letters(gs);
+    return result;
 }
 
 void process_modifiers_up(GlobalState gs, int scancode)
@@ -116,20 +141,26 @@ void process_event(GlobalState gs, ref SDL_Event event, KeyHandler *kh)
     switch( event.type )
     {
         case SDL_KEYDOWN:
-            process_modifiers_down(gs, event.key.keysym.scancode);
+            int res = process_modifiers_down(gs, event.key.keysym.scancode);
 
             with(gs.keybar)
             {
                 if (input_mode && !kh)
                 {
                     ButtonPos* buttonpos = event.key.keysym.scancode in buttonpos_by_scan;
-                    if (buttonpos)
+                    if (buttonpos || res)
                     {
-                        string chr = (*letters)[buttonpos.i][buttonpos.pos];
+                        string chr;
+                        if (res)
+                           chr = "" ~ char.init ~ res.to!string();
+                        else if (buttonpos)
+                           chr = (*letters)[buttonpos.i][buttonpos.pos];
                         if (chr == "Spc")
                             chr = " ";
-                        if (chr.walkLength == 1 && "↑←↓→".indexOf(chr) < 0)
+                        if (chr.walkLength == 1 && "↑←↓→".indexOf(chr) < 0 || res)
                         {
+                            gs.keybar.last_change = 0;
+                            gs.keybar.last_shift = 0;
                             SDL_Event sevent;
                             sevent.type = SDL_TEXTINPUT;
                             sevent.text.text = to_char_array_z!32(chr);

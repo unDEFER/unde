@@ -512,6 +512,13 @@ struct Command_Line_State{
     CmdOutPos first_click;
     CmdOutPos start_selection;
     CmdOutPos end_selection;
+
+    ssize_t cmd_mouse_pos;
+    ssize_t cmd_first_click;
+    ssize_t cmd_start_selection = -1;
+    ssize_t cmd_end_selection = -1;
+    SDL_Rect cmd_rect;
+
     double mouse_rel_y;
     long y;
     long neg_y;

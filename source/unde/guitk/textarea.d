@@ -13,6 +13,8 @@ import unde.global_state;
 import unde.guitk.lib;
 import unde.keybar.lib;
 import unde.lib;
+import unde.command_line.lib;
+import unde.tick;
 
 class TextArea:UIEntry
 {
@@ -24,6 +26,10 @@ class TextArea:UIEntry
     private int line_height;
     private ssize_t pos;
     private SDL_Color color;
+    private ssize_t mouse_pos;
+    private ssize_t first_click;
+    private ssize_t start_selection = -1;
+    private ssize_t end_selection = -1;
 
     @property SDL_Rect rect() {return _rect;}
     @property ref string text() {return _text;}
@@ -49,7 +55,8 @@ class TextArea:UIEntry
         }
 
         auto tt = gs.text_viewer.font.get_line_from_cache(_text, 
-                fontsize, _rect.w, line_height, color);
+                fontsize, _rect.w, line_height, color, null,
+                start_selection, end_selection);
         if (!tt && !tt.texture)
         {
             throw new Exception("Can't create text_surface: "~
@@ -70,6 +77,10 @@ class TextArea:UIEntry
         src.y = 0;
         src.w = (rect.x+tt.w < x_limit) ? tt.w : x_limit - rect.x;
         src.h = (rect.y+tt.h < y_limit) ? tt.h : y_limit - rect.y;
+
+        mouse_pos = get_position_by_chars(
+                gs.mouse_screen_x - rect.x,
+                gs.mouse_screen_y - rect.y, tt.chars);
 
         r = SDL_RenderCopy(gs.renderer, tt.texture, &src, &rect);
         if (r < 0)
@@ -113,6 +124,93 @@ class TextArea:UIEntry
         }
     }
 
+    void selection_to_buffer(GlobalState gs)
+    {
+        string selection = _text[start_selection..end_selection + _text.mystride(end_selection)];
+        SDL_SetClipboardText(selection.toStringz());
+    }
+
+    void shift_selected(GlobalState gs)
+    {
+        if (start_selection < 0 || end_selection < 0) return;
+        string converted;
+        for (ssize_t i=start_selection; i < end_selection + _text.mystride(end_selection); i+=_text.stride(i))
+        {
+            string chr = _text[i..i+_text.stride(i)];
+            if (chr.toLower() == chr)
+            {
+                chr = chr.toUpper();
+            }
+            else
+                chr = chr.toLower();
+
+            converted ~= chr;
+        }
+
+        _text = _text[0..start_selection] ~ converted ~ _text[end_selection + _text.mystride(end_selection)..$];
+    }
+
+    bool find_chr(string chr, string[][3] *letters, ref ButtonPos buttonpos)
+    {
+        for (buttonpos.i = 0; buttonpos.i < 3; buttonpos.i++)
+        {
+            for (buttonpos.pos = 0; buttonpos.pos <
+                    (*letters)[buttonpos.i].length; buttonpos.pos++)
+            {
+                if ((*letters)[buttonpos.i][buttonpos.pos] == chr)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    void change_layout_selected(GlobalState gs)
+    {
+        if (start_selection < 0 || end_selection < 0) return;
+        string converted;
+        for (ssize_t i=start_selection; i < end_selection + _text.mystride(end_selection); i+=_text.stride(i))
+        {
+            string chr = _text[i..i+_text.stride(i)];
+
+            ssize_t prev_mode = gs.keybar.mode-1;
+            if (prev_mode < 0)
+                prev_mode = gs.keybar.layout_modes.length - 1;
+
+            ButtonPos buttonpos;
+            auto letters = &gs.keybar.layout_modes[prev_mode].letters;
+            if (find_chr(chr, letters, buttonpos))
+            {
+                letters = &gs.keybar.layout_modes[gs.keybar.mode].letters;
+                chr = (*letters)[buttonpos.i][buttonpos.pos];
+            }
+            letters = &gs.keybar.layout_modes[prev_mode].letters_shift;
+            if (find_chr(chr, letters, buttonpos))
+            {
+                letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_shift;
+                chr = (*letters)[buttonpos.i][buttonpos.pos];
+            }
+            letters = &gs.keybar.layout_modes[prev_mode].letters_altgr;
+            if (find_chr(chr, letters, buttonpos))
+            {
+                letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_altgr;
+                chr = (*letters)[buttonpos.i][buttonpos.pos];
+            }
+            letters = &gs.keybar.layout_modes[prev_mode].letters_shift_altgr;
+            if (find_chr(chr, letters, buttonpos))
+            {
+                letters = &gs.keybar.layout_modes[gs.keybar.mode].letters_shift_altgr;
+                chr = (*letters)[buttonpos.i][buttonpos.pos];
+            }
+
+            converted ~= chr;
+        }
+
+        _text = _text[0..start_selection] ~ converted ~ _text[end_selection + _text.mystride(end_selection)..$];
+        end_selection = start_selection + converted.length;
+        end_selection -= _text.mystrideBack(end_selection);
+        if (pos > start_selection) pos = _text.length;
+    }
+
     void delegate(GlobalState gs) on_change;
 
     void process_event(GlobalState gs, SDL_Event event)
@@ -121,22 +219,50 @@ class TextArea:UIEntry
         {
             case SDL_TEXTINPUT:
                 char[] input = fromStringz(cast(char*)event.text.text);
-                _text = 
-                    (_text[0..pos] ~
-                    input ~
-                    _text[pos..$]).idup();
-                pos += input.length;
+                if (input[0] == char.init)
+                {
+                    if (input[1] == '1')
+                    {
+                        shift_selected(gs);
+                    }
+                    else
+                    {
+                        change_layout_selected(gs);
+                    }
+                }
+                else
+                {
+                    _text = 
+                        (_text[0..pos] ~
+                        input ~
+                        _text[pos..$]).idup();
+                    pos += input.length;
+                }
                 if (on_change)
                     on_change(gs);
                 break;
 
             case SDL_MOUSEMOTION:
+                if (gs.mouse_buttons & unDE_MouseButtons.Left)
+                {
+                    if (mouse_pos > first_click)
+                    {
+                        start_selection = first_click;
+                        end_selection = mouse_pos;
+                    }
+                    else
+                    {
+                        start_selection = mouse_pos;
+                        end_selection = first_click;
+                    }
+                }
                 break;
                 
             case SDL_MOUSEBUTTONDOWN:
                 switch (event.button.button)
                 {
                     case SDL_BUTTON_LEFT:
+                        first_click = mouse_pos;
                         break;
                     case SDL_BUTTON_MIDDLE:
                         break;
@@ -159,7 +285,48 @@ class TextArea:UIEntry
                             else
                             {
                                 set_focus(gs);
+                                start_selection = -1;
+                                end_selection = -1;
                             }
+                        }
+                        else
+                        {
+                            if (_text == "")
+                            {
+                                start_selection = -1;
+                                end_selection = -1;
+                            }
+                            else
+                            {
+                                if (mouse_pos > first_click)
+                                {
+                                    start_selection = first_click;
+                                    end_selection = mouse_pos;
+                                }
+                                else
+                                {
+                                    start_selection = mouse_pos;
+                                    end_selection = first_click;
+                                }
+                                if (end_selection + _text.mystride(end_selection) > _text.length)
+                                    end_selection = _text.length - 1 - _text.mystrideBack(_text.length-1);
+                                selection_to_buffer(gs);
+                            }
+                        }
+                        break;
+                    case SDL_BUTTON_MIDDLE:
+                        char* clipboard = SDL_GetClipboardText();
+                        if (clipboard)
+                        {
+                            string buffer = clipboard.fromStringz().idup();
+
+                            _text = 
+                                (_text[0..pos] ~
+                                 buffer ~
+                                 _text[pos..$]).idup();
+                            pos += buffer.length;
+                            if (on_change)
+                                on_change(gs);
                         }
                         break;
                     default:

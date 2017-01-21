@@ -6,6 +6,7 @@ import unde.tick;
 import unde.viewers.image_viewer.lib;
 import unde.file_manager.events;
 import unde.keybar.lib;
+import unde.translations.lib;
 
 import derelict.sdl2.sdl;
 
@@ -174,18 +175,18 @@ setup_keybar_imageviewer_default(GlobalState gs)
     gs.keybar.handlers_down.clear();
     gs.keybar.handlers_double.clear();
 
-    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&quit), "Quit", "exit.png");
-    gs.keybar.handlers[SDL_SCANCODE_PRINTSCREEN] = KeyHandler(toDelegate(&make_screenshot), "Make screenshot", "Prt Sc");
-    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&mark), "Make Mark", "mark.png");
-    gs.keybar.handlers[SDL_SCANCODE_APOSTROPHE] = KeyHandler(toDelegate(&gomark), "Go To Mark", "gomark.png");
-    gs.keybar.handlers[SDL_SCANCODE_A] = KeyHandler(toDelegate(&deselect_all), "Clear selection", "deselect.png");
+    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&quit), _("Quit"), "exit.png");
+    gs.keybar.handlers[SDL_SCANCODE_PRINTSCREEN] = KeyHandler(toDelegate(&make_screenshot), _("Make screenshot"), "Prt Sc");
+    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&mark), _("Make Mark"), "mark.png");
+    gs.keybar.handlers[SDL_SCANCODE_APOSTROPHE] = KeyHandler(toDelegate(&gomark), _("Go To Mark"), "gomark.png");
+    gs.keybar.handlers[SDL_SCANCODE_A] = KeyHandler(toDelegate(&deselect_all), _("Clear selection"), "deselect.png");
     gs.keybar.handlers_down[SDL_SCANCODE_LSHIFT] = KeyHandler(toDelegate(&setup_keybar_imageviewer_shift), "", "Shift");
     gs.keybar.handlers_down[SDL_SCANCODE_RSHIFT] = KeyHandler(toDelegate(&setup_keybar_imageviewer_shift), "", "");
-    gs.keybar.handlers[SDL_SCANCODE_LEFT] = KeyHandler(toDelegate(&image_prev), "Next Image", "←");
-    gs.keybar.handlers[SDL_SCANCODE_RIGHT] = KeyHandler(toDelegate(&image_next), "Prev Image", "→");
-    gs.keybar.handlers[SDL_SCANCODE_0] = KeyHandler(toDelegate(&setup_0_scale), "Fit on the screen", "0");
-    gs.keybar.handlers[SDL_SCANCODE_1] = KeyHandler(toDelegate(&setup_1_scale), "100% Scale", "100%");
-    gs.keybar.handlers[SDL_SCANCODE_R] = KeyHandler(toDelegate(&rotate), "Rotate right", "rotate_right.png");
+    gs.keybar.handlers[SDL_SCANCODE_LEFT] = KeyHandler(toDelegate(&image_prev), _("Next Image"), "←");
+    gs.keybar.handlers[SDL_SCANCODE_RIGHT] = KeyHandler(toDelegate(&image_next), _("Prev Image"), "→");
+    gs.keybar.handlers[SDL_SCANCODE_0] = KeyHandler(toDelegate(&setup_0_scale), _("Fit on the screen"), "0");
+    gs.keybar.handlers[SDL_SCANCODE_1] = KeyHandler(toDelegate(&setup_1_scale), _("100% Scale"), "100%");
+    gs.keybar.handlers[SDL_SCANCODE_R] = KeyHandler(toDelegate(&rotate), _("Rotate right"), "rotate_right.png");
 }
 
 void
@@ -195,8 +196,8 @@ setup_keybar_imageviewer_shift(GlobalState gs)
     gs.keybar.handlers_down.clear();
     gs.keybar.handlers_double.clear();
 
-    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&unmark), "Delete Mark", "unmark.png");
-    gs.keybar.handlers[SDL_SCANCODE_R] = KeyHandler(toDelegate(&rotate), "Rotate left", "rotate_left.png");
+    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&unmark), _("Delete Mark"), "unmark.png");
+    gs.keybar.handlers[SDL_SCANCODE_R] = KeyHandler(toDelegate(&rotate), _("Rotate left"), "rotate_left.png");
     gs.keybar.handlers[SDL_SCANCODE_LSHIFT] = KeyHandler(toDelegate(&setup_keybar_imageviewer_default), "", "Shift");
     gs.keybar.handlers[SDL_SCANCODE_RSHIFT] = KeyHandler(toDelegate(&setup_keybar_imageviewer_default), "", "");
 }

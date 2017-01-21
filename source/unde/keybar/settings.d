@@ -12,6 +12,7 @@ import unde.guitk.background;
 import unde.guitk.label;
 import unde.guitk.list;
 import unde.guitk.textarea;
+import unde.translations.lib;
 
 import std.stdio;
 import std.string;
@@ -42,9 +43,9 @@ UIPage create_keybar_settings_ui(GlobalState gs)
     UIPage page = new UIPage();
 
     page.add_entry(gs, new Background(page, gs));
-    page.add_entry(gs, new Label(page, gs, "Choose one or more keyboard layouts:",
+    page.add_entry(gs, new Label(page, gs, _("Choose one or more keyboard layouts:"),
             15, 15));
-    auto filter_label = new Label(page, gs, "Filter:", 15, 60);
+    auto filter_label = new Label(page, gs, _("Filter:"), 15, 60);
     page.add_entry(gs, filter_label);
     SDL_Rect filter_rect;
     filter_rect.x = filter_label.rect.x + filter_label.rect.w + 5;
@@ -76,7 +77,7 @@ UIPage create_keybar_settings_ui(GlobalState gs)
     page.add_entry(gs, filter_textarea);
     page.add_entry(gs, layouts_list);
     
-    page.add_entry(gs, new Label(page, gs, "You have chosen:",
+    page.add_entry(gs, new Label(page, gs, _("You have chosen:"),
             gs.screen.w/2 + 15, 15));
 
     SDL_Rect chosen_rect;
@@ -122,7 +123,7 @@ UIPage create_keybar_settings_ui(GlobalState gs)
 
     page.add_entry(gs, chosen_list);
 
-    page.add_entry(gs, new Label(page, gs, "Choose modifiers to change layouts:",
+    page.add_entry(gs, new Label(page, gs, _("Choose modifiers to change layouts:"),
             gs.screen.w/2 + 15, cast(int)(gs.screen.h*0.83/2 + 15)));
 
     SDL_Rect modifiers_rect;
@@ -148,7 +149,7 @@ UIPage create_keybar_settings_ui(GlobalState gs)
 
     page.add_entry(gs, modifiers_list);
 
-    page.add_entry(gs, new Label(page, gs, "Try text input here:",
+    page.add_entry(gs, new Label(page, gs, _("Try text input here:"),
             15, cast(int)(gs.screen.h*0.83 + 15)));
 
     SDL_Rect test_rect;

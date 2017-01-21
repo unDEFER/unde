@@ -16,6 +16,7 @@ import unde.tick;
 import unde.scan;
 import unde.path_mnt;
 import unde.slash;
+import unde.translations.lib;
 
 import berkeleydb.all;
 import derelict.sdl2.sdl;
@@ -110,9 +111,9 @@ auto get_copy_or_move(GlobalState gs, string copy_or_move)
         {
             string msg;
             if (copy_or_move == "copy")
-                msg = format("Copy to the same directory works only for exactly 1 selection");
+                msg = format(_("Copy to the same directory works only for exactly 1 selection"));
             else
-                msg = format("Rename (move to the same directory) works only for exactly 1 selection");
+                msg = format(_("Rename (move to the same directory) works only for exactly 1 selection"));
             gs.messages ~= ConsoleMessage(
                     SDL_Color(0xFF, 0xFF, 0xFF, 0xFF),
                     msg,
@@ -123,9 +124,9 @@ auto get_copy_or_move(GlobalState gs, string copy_or_move)
         {
             string msg;
             if (copy_or_move == "copy")
-                msg = format("Can't copy to a subdirectory");
+                msg = format(_("Can't copy to a subdirectory"));
             else
-                msg = format("Can't move to a subdirectory");
+                msg = format(_("Can't move to a subdirectory"));
             gs.messages ~= ConsoleMessage(
                     SDL_Color(0xFF, 0x00, 0x00, 0xFF),
                     msg,
@@ -226,7 +227,7 @@ void remove_selection(GlobalState gs)
 
     if (not_fit_on_screen)
     {
-        string msg = format("Go (up) to directory which fully covers selection to confirm removing %d items",
+        string msg = format(_("Go (up) to directory which fully covers selection to confirm removing %d items"),
                 gs.selection_hash.length);
         gs.messages ~= ConsoleMessage(
                 SDL_Color(0xFF, 0xFF, 0xFF, 0xFF),
@@ -710,23 +711,23 @@ setup_keybar_filemanager_default(GlobalState gs)
     gs.keybar.handlers_down.clear();
     gs.keybar.handlers_double.clear();
 
-    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&quit), "Quit", "exit.png");
-    gs.keybar.handlers[SDL_SCANCODE_PRINTSCREEN] = KeyHandler(toDelegate(&make_screenshot), "Make screenshot", "Prt Sc");
-    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&mark), "Make Mark", "mark.png");
-    gs.keybar.handlers[SDL_SCANCODE_APOSTROPHE] = KeyHandler(toDelegate(&gomark), "Go To Mark", "gomark.png");
-    gs.keybar.handlers[SDL_SCANCODE_R] = KeyHandler(toDelegate(&rescan), "Rescan directory", "rescan.png");
-    gs.keybar.handlers[SDL_SCANCODE_A] = KeyHandler(toDelegate(&deselect_all), "Clear selection", "deselect.png");
+    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&quit), _("Quit"), "exit.png");
+    gs.keybar.handlers[SDL_SCANCODE_PRINTSCREEN] = KeyHandler(toDelegate(&make_screenshot), _("Make screenshot"), "Prt Sc");
+    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&mark), _("Make Mark"), "mark.png");
+    gs.keybar.handlers[SDL_SCANCODE_APOSTROPHE] = KeyHandler(toDelegate(&gomark), _("Go To Mark"), "gomark.png");
+    gs.keybar.handlers[SDL_SCANCODE_R] = KeyHandler(toDelegate(&rescan), _("Rescan directory"), "rescan.png");
+    gs.keybar.handlers[SDL_SCANCODE_A] = KeyHandler(toDelegate(&deselect_all), _("Clear selection"), "deselect.png");
     gs.keybar.handlers_down[SDL_SCANCODE_LSHIFT] = KeyHandler(toDelegate(&setup_keybar_filemanager_shift), "", "Shift");
     gs.keybar.handlers_down[SDL_SCANCODE_RSHIFT] = KeyHandler(toDelegate(&setup_keybar_filemanager_shift), "", "");
     gs.keybar.handlers_down[SDL_SCANCODE_LCTRL] = KeyHandler(toDelegate(&setup_keybar_filemanager_ctrl), "", "Ctrl");
     gs.keybar.handlers_down[SDL_SCANCODE_RCTRL] = KeyHandler(toDelegate(&setup_keybar_filemanager_ctrl), "", "");
-    gs.keybar.handlers_double[SDL_SCANCODE_ESCAPE] = KeyHandler(toDelegate(&clear_messages), "Clear error messages in directories", "clear_errors.png");
-    gs.keybar.handlers[SDL_SCANCODE_C] = KeyHandler(get_copy_or_move(gs, "copy"), "Copy selection to current directory", "copy.png");
-    gs.keybar.handlers[SDL_SCANCODE_V] = KeyHandler(get_copy_or_move(gs, "move"), "Move selection to current directory", "move.png");
-    gs.keybar.handlers[SDL_SCANCODE_D] = KeyHandler(toDelegate(&start_create_directory), "Create Directory", "create_directory.png");
-    gs.keybar.handlers[SDL_SCANCODE_E] = KeyHandler(toDelegate(&remove_selection), "Remove Selection", "remove.png");
-    gs.keybar.handlers[SDL_SCANCODE_S] = KeyHandler(toDelegate(&change_sorting), "Change Sort Order", "sort.png");
-    gs.keybar.handlers_double[SDL_SCANCODE_RETURN] = KeyHandler(toDelegate(&turn_on_terminal), "Open Terminal", "terminal.png");
+    gs.keybar.handlers_double[SDL_SCANCODE_ESCAPE] = KeyHandler(toDelegate(&clear_messages), _("Clear error messages in directories"), "clear_errors.png");
+    gs.keybar.handlers[SDL_SCANCODE_C] = KeyHandler(get_copy_or_move(gs, "copy"), _("Copy selection to current directory"), "copy.png");
+    gs.keybar.handlers[SDL_SCANCODE_V] = KeyHandler(get_copy_or_move(gs, "move"), _("Move selection to current directory"), "move.png");
+    gs.keybar.handlers[SDL_SCANCODE_D] = KeyHandler(toDelegate(&start_create_directory), _("Create Directory"), "create_directory.png");
+    gs.keybar.handlers[SDL_SCANCODE_E] = KeyHandler(toDelegate(&remove_selection), _("Remove Selection"), "remove.png");
+    gs.keybar.handlers[SDL_SCANCODE_S] = KeyHandler(toDelegate(&change_sorting), _("Change Sort Order"), "sort.png");
+    gs.keybar.handlers_double[SDL_SCANCODE_RETURN] = KeyHandler(toDelegate(&turn_on_terminal), _("Open Terminal"), "terminal.png");
 }
 
 void
@@ -736,9 +737,9 @@ setup_keybar_filemanager_ctrl(GlobalState gs)
     gs.keybar.handlers_down.clear();
     gs.keybar.handlers_double.clear();
 
-    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&restart), "Restart", "exit.png");
-    gs.keybar.handlers[SDL_SCANCODE_SEMICOLON] = KeyHandler(toDelegate(&turn_on_command_line), "Command line", "command_line.png");
-    gs.keybar.handlers[SDL_SCANCODE_L] = KeyHandler(toDelegate(&turn_on_keybar_settings), "Keyboard layouts settings", "keybar");
+    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&restart), _("Restart"), "exit.png");
+    gs.keybar.handlers[SDL_SCANCODE_SEMICOLON] = KeyHandler(toDelegate(&turn_on_command_line), _("Command line"), "command_line.png");
+    gs.keybar.handlers[SDL_SCANCODE_L] = KeyHandler(toDelegate(&turn_on_keybar_settings), _("Keyboard layouts settings"), "keybar");
     gs.keybar.handlers[SDL_SCANCODE_LCTRL] = KeyHandler(toDelegate(&setup_keybar_filemanager_default), "", "Ctrl");
     gs.keybar.handlers[SDL_SCANCODE_RCTRL] = KeyHandler(toDelegate(&setup_keybar_filemanager_default), "", "");
 }
@@ -750,9 +751,9 @@ setup_keybar_filemanager_shift(GlobalState gs)
     gs.keybar.handlers_down.clear();
     gs.keybar.handlers_double.clear();
 
-    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&unmark), "Delete Mark", "unmark.png");
-    gs.keybar.handlers[SDL_SCANCODE_C] = KeyHandler(get_copy_or_move(gs, "copy"), "Copy selection to current directory with deleting not exists files in the source directory", "copy.png");
-    gs.keybar.handlers[SDL_SCANCODE_V] = KeyHandler(get_copy_or_move(gs, "move"), "Move selection to current directory with deleting not exists files in the source directory", "move.png");
+    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&unmark), _("Delete Mark"), "unmark.png");
+    gs.keybar.handlers[SDL_SCANCODE_C] = KeyHandler(get_copy_or_move(gs, "copy"), _("Copy selection to current directory with deleting not exists files in the source directory"), "copy.png");
+    gs.keybar.handlers[SDL_SCANCODE_V] = KeyHandler(get_copy_or_move(gs, "move"), _("Move selection to current directory with deleting not exists files in the source directory"), "move.png");
     gs.keybar.handlers[SDL_SCANCODE_LSHIFT] = KeyHandler(toDelegate(&setup_keybar_filemanager_default), "", "Shift");
     gs.keybar.handlers[SDL_SCANCODE_RSHIFT] = KeyHandler(toDelegate(&setup_keybar_filemanager_default), "", "");
 }

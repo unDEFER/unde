@@ -7,6 +7,7 @@ import unde.viewers.text_viewer.lib;
 import unde.file_manager.events;
 import unde.command_line.events;
 import unde.keybar.lib;
+import unde.translations.lib;
 
 import derelict.sdl2.sdl;
 
@@ -250,20 +251,20 @@ setup_keybar_textviewer_default(GlobalState gs)
     gs.keybar.handlers_down.clear();
     gs.keybar.handlers_double.clear();
 
-    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&quit), "Quit", "exit.png");
-    gs.keybar.handlers[SDL_SCANCODE_PRINTSCREEN] = KeyHandler(toDelegate(&make_screenshot), "Make screenshot", "Prt Sc");
-    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&mark), "Make Mark", "mark.png");
-    gs.keybar.handlers[SDL_SCANCODE_APOSTROPHE] = KeyHandler(toDelegate(&gomark), "Go To Mark", "gomark.png");
-    gs.keybar.handlers[SDL_SCANCODE_A] = KeyHandler(toDelegate(&deselect_all), "Clear selection", "deselect.png");
+    gs.keybar.handlers[SDL_SCANCODE_Q] = KeyHandler(toDelegate(&quit), _("Quit"), "exit.png");
+    gs.keybar.handlers[SDL_SCANCODE_PRINTSCREEN] = KeyHandler(toDelegate(&make_screenshot), _("Make screenshot"), "Prt Sc");
+    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&mark), _("Make Mark"), "mark.png");
+    gs.keybar.handlers[SDL_SCANCODE_APOSTROPHE] = KeyHandler(toDelegate(&gomark), _("Go To Mark"), "gomark.png");
+    gs.keybar.handlers[SDL_SCANCODE_A] = KeyHandler(toDelegate(&deselect_all), _("Clear selection"), "deselect.png");
     gs.keybar.handlers_down[SDL_SCANCODE_LSHIFT] = KeyHandler(toDelegate(&setup_keybar_textviewer_shift), "", "Shift");
     gs.keybar.handlers_down[SDL_SCANCODE_RSHIFT] = KeyHandler(toDelegate(&setup_keybar_textviewer_shift), "", "");
-    gs.keybar.handlers[SDL_SCANCODE_LEFT] = KeyHandler(toDelegate(&text_prev), "Next Text", "←");
-    gs.keybar.handlers[SDL_SCANCODE_RIGHT] = KeyHandler(toDelegate(&text_next), "Prev Text", "→");
-    gs.keybar.handlers[SDL_SCANCODE_W] = KeyHandler(toDelegate(&change_wrap_mode), "On/Off wrap lines", "Wrap");
-    gs.keybar.handlers[SDL_SCANCODE_G] = KeyHandler(toDelegate(&go_to_beginning_or_to_the_end), "Go To Beginining", "Begin");
-    gs.keybar.handlers[SDL_SCANCODE_PAGEUP] = KeyHandler(toDelegate(&textviewer_page_up), "Page Up", "PgUp");
-    gs.keybar.handlers[SDL_SCANCODE_PAGEDOWN] = KeyHandler(toDelegate(&textviewer_page_down), "Page Down", "PgD");
-    gs.keybar.handlers_double[SDL_SCANCODE_LCTRL] = KeyHandler(toDelegate(&turn_on_off_ctrl_mode), "Ctrl Mode", "Ctrl");
+    gs.keybar.handlers[SDL_SCANCODE_LEFT] = KeyHandler(toDelegate(&text_prev), _("Next Text"), "←");
+    gs.keybar.handlers[SDL_SCANCODE_RIGHT] = KeyHandler(toDelegate(&text_next), _("Prev Text"), "→");
+    gs.keybar.handlers[SDL_SCANCODE_W] = KeyHandler(toDelegate(&change_wrap_mode), _("On/Off wrap lines"), "Wrap");
+    gs.keybar.handlers[SDL_SCANCODE_G] = KeyHandler(toDelegate(&go_to_beginning_or_to_the_end), _("Go To Beginining"), "Begin");
+    gs.keybar.handlers[SDL_SCANCODE_PAGEUP] = KeyHandler(toDelegate(&textviewer_page_up), _("Page Up"), "PgUp");
+    gs.keybar.handlers[SDL_SCANCODE_PAGEDOWN] = KeyHandler(toDelegate(&textviewer_page_down), _("Page Down"), "PgD");
+    gs.keybar.handlers_double[SDL_SCANCODE_LCTRL] = KeyHandler(toDelegate(&turn_on_off_ctrl_mode), _("Ctrl Mode"), "Ctrl");
     gs.keybar.handlers_double[SDL_SCANCODE_RCTRL] = KeyHandler(toDelegate(&turn_on_off_ctrl_mode), "", "");
 }
 
@@ -274,8 +275,8 @@ setup_keybar_textviewer_shift(GlobalState gs)
     gs.keybar.handlers_down.clear();
     gs.keybar.handlers_double.clear();
 
-    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&unmark), "Delete Mark", "unmark.png");
-    gs.keybar.handlers[SDL_SCANCODE_G] = KeyHandler(toDelegate(&go_to_beginning_or_to_the_end), "Go To End", "End");
+    gs.keybar.handlers[SDL_SCANCODE_M] = KeyHandler(toDelegate(&unmark), _("Delete Mark"), "unmark.png");
+    gs.keybar.handlers[SDL_SCANCODE_G] = KeyHandler(toDelegate(&go_to_beginning_or_to_the_end), _("Go To End"), "End");
     gs.keybar.handlers[SDL_SCANCODE_LSHIFT] = KeyHandler(toDelegate(&setup_keybar_textviewer_default), "", "Shift");
     gs.keybar.handlers[SDL_SCANCODE_RSHIFT] = KeyHandler(toDelegate(&setup_keybar_textviewer_default), "", "");
 }

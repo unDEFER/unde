@@ -1,8 +1,9 @@
-unDE is a recursive acronym for "unDE Is Not Desktop Environment".
+unDE is a recursive acronym for "unDE's Not Desktop Environment".
 And really it is not DE in habitual understanding.
 It is integrated environment of new generation, which do all, that you usually
 do with computer, but interface redesigned with new ideas to remove from this
 work many annoying things.
 As version 0.1.0 unDE is original file manager, text viewer and image viewer.
+In 0.2.0 version was added command line and kywbar.
 
 More info: http://unde.su

@@ -1,0 +1,14 @@
+unde (0.2.0-1) UNRELEASED; urgency=medium
+
+  * Command line
+  * Keybar
+
+ -- Nikolay (unDEFER) Krivchenkov <undefer@gmail.com>  Mon, 23 Jan 2017 00:11:53 +0300
+unde (0.1.0-1) UNRELEASED; urgency=medium
+
+  * Initial release. Provides:
+  * File manager;
+  * Text viewer;
+  * Image viewer.
+
+ -- Nikolay (unDEFER) Krivchenkov <undefer@gmail.com>  Sun, 11 Dec 2016 11:17:10 +0300

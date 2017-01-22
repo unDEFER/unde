@@ -16,7 +16,10 @@ import unde.lib;
 import unde.command_line.lib;
 import unde.tick;
 
+version(Windows)
+{
 import berkeleydb.all: ssize_t;
+}
 
 class TextArea:UIEntry
 {

@@ -245,7 +245,17 @@ class KeyBar_Buttons
     void
     read_layouts(GlobalState gs, string start_cwd)
     {
-        foreach(filename; dirEntries(start_cwd~SL~"layouts"~SL, SpanMode.breadth))
+        string layouts_dir = start_cwd~SL~"layouts"~SL;
+        if (!exists(layouts_dir))
+        {
+            layouts_dir = "/usr/share/unde/layouts/";
+            if (!exists(layouts_dir))
+            {
+                new Exception("Not found .layouts or /usr/share/unde/layouts/");
+            }
+        }
+
+        foreach(filename; dirEntries(layouts_dir, SpanMode.breadth))
         {
             if (filename.isDir) continue;
 
@@ -459,7 +469,17 @@ draw_keybar(GlobalState gs)
 
                 if ( key_handler.icon.endsWith(".png") )
                 {
-                    auto st = get_image_from_cache(gs, gs.start_cwd~"/images/"~key_handler.icon);
+                    string image_file = gs.start_cwd~SL~"images"~SL~key_handler.icon;
+                    if (!exists(image_file))
+                    {
+                        image_file = "/usr/share/unde/images/"~key_handler.icon;
+                        if (!exists(image_file))
+                        {
+                            new Exception("Not found .images or /usr/share/unde/images/");
+                        }
+                    }
+
+                    auto st = get_image_from_cache(gs, image_file);
 
                     if (st)
                     {
@@ -484,7 +504,7 @@ draw_keybar(GlobalState gs)
                     else
                     {
                         writefln("Can't load %s: %s",
-                                gs.start_cwd~"/images/"~key_handler.icon,
+                                image_file,
                                 IMG_GetError().fromStringz());
                     }
                 }

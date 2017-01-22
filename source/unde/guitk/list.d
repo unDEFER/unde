@@ -14,7 +14,10 @@ import unde.keybar.lib;
 import unde.lib;
 import unde.tick;
 
+version(Windows)
+{
 import berkeleydb.all: ssize_t;
+}
 
 class List:UIEntry
 {

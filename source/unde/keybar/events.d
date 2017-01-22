@@ -13,7 +13,10 @@ import std.math;
 import std.conv;
 import std.range.primitives;
 
+version(Windows)
+{
 import berkeleydb.all: ssize_t;
+}
 
 int process_modifiers_down(GlobalState gs, int scancode)
 {

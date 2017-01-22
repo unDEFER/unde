@@ -18,7 +18,10 @@ import std.stdio;
 import std.conv;
 import std.string;
 
+version(Windows)
+{
 import berkeleydb.all: ssize_t;
+}
 
 
 struct CharSize

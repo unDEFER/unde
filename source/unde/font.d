@@ -18,6 +18,9 @@ import std.stdio;
 import std.conv;
 import std.string;
 
+import berkeleydb.all: ssize_t;
+
+
 struct CharSize
 {
     string chr;

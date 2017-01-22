@@ -21,6 +21,8 @@ import std.range.primitives;
 import std.file;
 import std.algorithm.searching;
 
+import berkeleydb.all: ssize_t;
+
 ssize_t
 get_pos_of_layout(string[] names, string name, ssize_t p = 0)
 {

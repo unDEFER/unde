@@ -20,6 +20,7 @@ import std.file;
 import std.algorithm.sorting;
 import std.process;
 import core.stdc.locale;
+import core.sys.windows.windows;
 
 struct KeyHandler
 {
@@ -244,7 +245,7 @@ class KeyBar_Buttons
     void
     read_layouts(GlobalState gs, string start_cwd)
     {
-        foreach(filename; dirEntries(start_cwd~"/layouts/", SpanMode.breadth))
+        foreach(filename; dirEntries(start_cwd~SL~"layouts"~SL, SpanMode.breadth))
         {
             if (filename.isDir) continue;
 
@@ -391,7 +392,7 @@ draw_keybar(GlobalState gs)
         if (!tt && !tt.texture)
         {
             throw new Exception("can't create text_surface: "~
-                    to!string(SDL_GetError()));
+                    SDL_GetError().fromStringz().idup());
         }
 
         SDL_Rect rect;
@@ -405,7 +406,7 @@ draw_keybar(GlobalState gs)
         {
             writefln(
                     "draw_keybar(): error while render copy: %s", 
-                    SDL_GetError().to!string() );
+                    SDL_GetError().fromStringz() );
         }
 
         int[3] x = [2, 18, 2];
@@ -477,14 +478,14 @@ draw_keybar(GlobalState gs)
                         if (r < 0)
                         {
                             writefln( "draw_keybar() 2: Error while render copy: %s",
-                                    SDL_GetError().to!string() );
+                                    SDL_GetError().fromStringz() );
                         }
                     }
                     else
                     {
                         writefln("Can't load %s: %s",
                                 gs.start_cwd~"/images/"~key_handler.icon,
-                                to!string(IMG_GetError()));
+                                IMG_GetError().fromStringz());
                     }
                 }
                 else
@@ -501,7 +502,7 @@ draw_keybar(GlobalState gs)
                     if (!tt && !tt.texture)
                     {
                         throw new Exception("Can't create text_surface: "~
-                                to!string(TTF_GetError()));
+                                TTF_GetError().fromStringz().idup());
                     }
 
                     SDL_Rect dst;
@@ -523,7 +524,7 @@ draw_keybar(GlobalState gs)
                     if (r < 0)
                     {
                         writefln( "draw_keybar() 3: Error while render copy: %s",
-                                SDL_GetError().to!string() );
+                                SDL_GetError().fromStringz() );
                     }
 
                 }
@@ -543,7 +544,7 @@ draw_keybar(GlobalState gs)
                 if (!tt && !tt.texture)
                 {
                     throw new Exception("Can't create text_surface: "~
-                            to!string(TTF_GetError()));
+                            TTF_GetError().fromStringz().idup());
                 }
 
                 SDL_Rect dst;
@@ -565,7 +566,7 @@ draw_keybar(GlobalState gs)
                 if (r < 0)
                 {
                     writefln( "draw_keybar() 4: Error while render copy: %s",
-                            SDL_GetError().to!string() );
+                            SDL_GetError().fromStringz() );
                 }
             }
         }
@@ -581,7 +582,7 @@ draw_keybar(GlobalState gs)
             if (!tt && !tt.texture)
             {
                 throw new Exception("Can't create text_surface: "~
-                        to!string(TTF_GetError()));
+                        TTF_GetError().fromStringz().idup());
             }
 
             /* Render black background */
@@ -595,7 +596,7 @@ draw_keybar(GlobalState gs)
             if (r < 0)
             {
                 writefln( "draw_keybar(), 5: Error while render copy: %s",
-                        SDL_GetError().to!string() );
+                        SDL_GetError().fromStringz() );
             }
 
             /* Render description of buttons */
@@ -603,7 +604,7 @@ draw_keybar(GlobalState gs)
             if (r < 0)
             {
                 writefln( "draw_keybar() 6: Error while render copy: %s",
-                        SDL_GetError().to!string() );
+                        SDL_GetError().fromStringz() );
             }
         }
     }
@@ -672,6 +673,15 @@ load_keybar_settings(GlobalState gs, KeyBar_Buttons keybar)
                     layout_modes ~= &layouts["ru(winkeys)"];
                 }
             }
+	    else
+	    version (Windows)
+	    {
+		auto lang = 0xFF & GetUserDefaultUILanguage();
+		if (lang == LANG_RUSSIAN)
+		{
+		    layout_modes ~= &layouts["ru(winkeys)"];
+		}
+	    }
             changer = LayoutChanger.LeftWin;
             keybar_settings_needed = true;
         }

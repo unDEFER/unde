@@ -5,6 +5,7 @@ import derelict.sdl2.ttf;
 import derelict.sdl2.image;
 
 import std.stdio;
+import std.string;
 
 import unde.global_state;
 import unde.guitk.lib;
@@ -37,7 +38,7 @@ class Background:UIEntry
         if (r < 0)
         {
             writefln( "Background.on_draw(), 1: Error while render copy: %s",
-                    SDL_GetError().to!string() );
+                    SDL_GetError().fromStringz() );
         }
     }
 

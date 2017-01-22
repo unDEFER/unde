@@ -6,6 +6,7 @@ import derelict.sdl2.image;
 
 import std.stdio;
 import std.math;
+import std.string;
 
 import unde.global_state;
 import unde.guitk.lib;
@@ -38,7 +39,7 @@ class Label:UIEntry
         if (!tt && !tt.texture)
         {
             throw new Exception("Can't create text_surface: "~
-                    to!string(TTF_GetError()));
+                    TTF_GetError().fromStringz().idup());
         }
 
         _rect.w = tt.w;
@@ -56,7 +57,7 @@ class Label:UIEntry
         if (!tt && !tt.texture)
         {
             throw new Exception("Can't create text_surface: "~
-                    to!string(TTF_GetError()));
+                    TTF_GetError().fromStringz().idup());
         }
 
         SDL_Rect rect;
@@ -71,7 +72,7 @@ class Label:UIEntry
             writefln(
                     "Label.on_draw() %s: Error while render copy: %s", 
                     label,
-                    SDL_GetError().to!string() );
+                    SDL_GetError().fromStringz() );
         }
     }
 

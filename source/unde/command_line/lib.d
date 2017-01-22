@@ -650,7 +650,7 @@ string common_part(string a, string b)
 string autocomplete(GlobalState gs, string command, bool is_command, StringStatus status)
 {
     string[] completions;
-    if (is_command && command.indexOf("/") < 0)
+    if (is_command && command.indexOf(SL) < 0)
     {
         string path = environment["PATH"];
         auto paths = splitter(path, pathSeparator);
@@ -663,7 +663,7 @@ string autocomplete(GlobalState gs, string command, bool is_command, StringStatu
             {
                 foreach (string name; dirEntries(p, SpanMode.shallow))
                 {
-                    binaries ~= name[name.lastIndexOf("/")+1..$];
+                    binaries ~= name[name.lastIndexOf(SL)+1..$];
                 }
             }
             catch (FileException exp)
@@ -678,32 +678,54 @@ string autocomplete(GlobalState gs, string command, bool is_command, StringStatu
     }
     else
     {
-        string dir;
-        dir = buildNormalizedPath(absolutePath(expandTilde(command), gs.full_current_path));
-        if (command.length > 0 && command[$-1] == '/') dir ~= "/";
-        dir = dir[0..dir.lastIndexOf("/")+1];
+	version (Windows)
+	{
+		if (gs.full_current_path == "")
+		{
+		    string[] files = [];
+		    files ~= "C:\\";
+		    files ~= "D:\\";
+		    files ~= "E:\\";
+		    completions = files;
+		}
 
-        string[] files = [];
-        if (gs.selection_hash.length > 0)
-            files ~= "${SELECTED[@]}";
-        //writefln("dir = %s, is null = %s, %s", dir, dir is null, dir.length);
-        if (dir !is null)
-        {
-            try{
-                if (!dir.isDir()) dir = dir[0..dir.lastIndexOf("/")];
-                foreach (string name; dirEntries(dir, SpanMode.shallow))
-                {
-                    files ~= name[name.lastIndexOf("/")+1..$];
-                }
+	}
+	if (gs.full_current_path > "")
+	{
+		string full_current_path = gs.full_current_path;
+		version (Windows)
+		{
+		    if (full_current_path[1] == ':' && full_current_path.length == 2)
+		  	    full_current_path ~= SL;
+		}
 
-                command = command[command.lastIndexOf("/")+1..$];
+		string dir;
+		dir = buildNormalizedPath(absolutePath(expandTilde(command), full_current_path));
+		if (command.length > 0 && command[$-1] == SL[0]) dir ~= SL;
+		dir = dir[0..dir.lastIndexOf(SL)+1];
 
-                sort!("a < b")(files);
-                completions = files;
-            } catch (FileException exp)
-            {
-            }
-        }
+		string[] files = [];
+		if (gs.selection_hash.length > 0)
+		    files ~= "${SELECTED[@]}";
+		//writefln("dir = %s, is null = %s, %s", dir, dir is null, dir.length);
+		if (dir !is null)
+		{
+		    try{
+			if (!dir.isDir()) dir = dir[0..dir.lastIndexOf(SL)];
+			foreach (string name; dirEntries(dir, SpanMode.shallow))
+			{
+			    files ~= name[name.lastIndexOf(SL)+1..$];
+			}
+
+			command = command[command.lastIndexOf(SL)+1..$];
+
+			sort!("a < b")(files);
+			completions = files;
+		    } catch (FileException exp)
+		    {
+		    }
+		}
+	}
     }
 
     final switch (status)
@@ -1449,7 +1471,14 @@ redraw:
                                             {
                                                 return ()
                                                 {
-                                                    send(tid, "signal", SIGKILL);
+						   version(Posix)
+						   { 
+                                                       send(tid, "signal", SIGKILL);
+						   }
+						   else version (Windows)
+						   {
+						       writefln("send SIGKILL Signal in windows not supported (Tid=%s)", tid);
+						   }
                                                 };
                                             }
 

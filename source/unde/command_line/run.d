@@ -40,6 +40,7 @@ import core.sys.posix.pty; //Hand-made module
 import core.sys.posix.sys.ioctl;
 import core.sys.posix.termios;
 import core.sys.posix.sys.wait;
+static import std.algorithm;
 
 import derelict.sdl2.sdl;
 
@@ -112,6 +113,8 @@ struct AltMode
 private void
 set_non_block_mode(int fd)
 {
+version(Posix)
+{
     int flags;
     if (-1 == (flags = fcntl(fd, F_GETFL, 0)))
         flags = 0;
@@ -120,6 +123,7 @@ set_non_block_mode(int fd)
     {
         throw new Exception("fcntl() error: " ~ fromStringz(strerror(errno)).idup());
     }
+}
 }
 
 
@@ -1719,6 +1723,8 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
         ref WorkMode workmode, ref AltMode altmode, 
         int fd, OutPipe pipe)
 {
+version(Posix)
+{
     with(workmode)
     {
         //writefln("max_r=%d", max_r);
@@ -2030,10 +2036,18 @@ process_input(CMDGlobalState cgs, string cwd, ulong new_id,
         return 0;
     }
 }
+else
+version (Windows)
+{
+	return 0;
+}
+}
 
 private int
 fork_command(CMDGlobalState cgs, string cwd, string full_cwd, string command, 
         winsize ws, immutable string[] selection, Tid tid)
+{
+version (Posix)
 {
     cgs.recommit();
 
@@ -2461,6 +2475,11 @@ IFS="$OLD_IFS"
     }
     return result;
 }
+version (Windows)
+{
+    return 0;
+}
+}
 
 private void
 command(string cwd, string full_cwd, string command, winsize ws,
@@ -2485,6 +2504,13 @@ command(string cwd, string full_cwd, string command, winsize ws,
 private auto
 get_arguments(bool Multiversion = true)(GlobalState gs, string command)
 {
+    string full_current_path = gs.full_current_path;
+    version (Windows)
+    {
+	 if (full_current_path.length == 2 && full_current_path[1] == ':')
+		full_current_path ~= SL;
+    }
+
     while (command > "" && command[0] == ' ' || command[0] == '\t')
         command = command[1..$];
 
@@ -2503,6 +2529,7 @@ get_arguments(bool Multiversion = true)(GlobalState gs, string command)
         if (chr == `\` && status != StringStatus.Quote)
         {
             i++;
+	    if (i >= command.length) continue;
             chr = command[i..i+command.stride(i)];
             argument ~= chr;
         }
@@ -2553,12 +2580,12 @@ get_arguments(bool Multiversion = true)(GlobalState gs, string command)
     static if (Multiversion)
     {
         if (argument > "")
-            arguments ~= buildNormalizedPath(absolutePath(expandTilde(argument), gs.full_current_path));
+            arguments ~= buildNormalizedPath(absolutePath(expandTilde(argument), full_current_path));
         return arguments;
     }
     else
     {
-        return [buildNormalizedPath(absolutePath(expandTilde(argument), gs.full_current_path))];
+        return [buildNormalizedPath(absolutePath(expandTilde(argument), full_current_path))];
     }
 }
 

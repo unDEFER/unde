@@ -10,7 +10,10 @@ import derelict.sdl2.sdl;
 import std.stdio;
 import std.string;
 import std.math;
+import std.conv;
 import std.range.primitives;
+
+import berkeleydb.all: ssize_t;
 
 int process_modifiers_down(GlobalState gs, int scancode)
 {

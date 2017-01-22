@@ -16,6 +16,8 @@ import unde.lib;
 import unde.command_line.lib;
 import unde.tick;
 
+import berkeleydb.all: ssize_t;
+
 class TextArea:UIEntry
 {
     private SDL_Rect _rect;
@@ -51,7 +53,7 @@ class TextArea:UIEntry
         if (r < 0)
         {
             writefln( "List.on_draw(), 1: Error while render copy: %s",
-                    SDL_GetError().to!string() );
+                    SDL_GetError().fromStringz() );
         }
 
         auto tt = gs.text_viewer.font.get_line_from_cache(_text, 
@@ -60,7 +62,7 @@ class TextArea:UIEntry
         if (!tt && !tt.texture)
         {
             throw new Exception("Can't create text_surface: "~
-                    to!string(TTF_GetError()));
+                    TTF_GetError().fromStringz().idup());
         }
 
         int x_limit = _rect.x+_rect.w;
@@ -87,7 +89,7 @@ class TextArea:UIEntry
         {
             writefln(
                     "List.on_draw(), 2: Error while render copy: %s", 
-                    SDL_GetError().to!string() );
+                    SDL_GetError().fromStringz() );
         }
 
         /* Render cursor */
@@ -107,7 +109,7 @@ class TextArea:UIEntry
                 if (r < 0)
                 {
                     writefln( "draw_command_line(), 11: Error while render copy: %s",
-                            SDL_GetError().to!string() );
+                            SDL_GetError().fromStringz() );
                 }
 
                 auto st = gs.text_viewer.font.get_char_from_cache(chr, fontsize, SDL_Color(0x00, 0x00, 0x20, 0xFF));
@@ -118,7 +120,7 @@ class TextArea:UIEntry
                 {
                     writefln(
                             "draw_command_line(), 12: Error while render copy: %s", 
-                            SDL_GetError().to!string() );
+                            SDL_GetError().fromStringz() );
                 }
             }
         }

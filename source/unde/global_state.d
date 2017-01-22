@@ -20,7 +20,10 @@ import core.stdc.stdlib;
 import core.stdc.string;
 import core.stdc.errno;
 import core.thread;
-import core.sys.posix.unistd: fork;
+version (Posix)
+{
+	import core.sys.posix.unistd: fork;
+}
 import core.sys.posix.sys.ioctl;
 import std.string;
 import std.concurrency;
@@ -35,6 +38,17 @@ import berkeleydb.all;
 import derelict.sdl2.sdl;
 import derelict.sdl2.ttf;
 import derelict.sdl2.image;
+
+version (Windows)
+{
+	struct winsize
+	{
+	    int ws_col;
+	    int ws_row;
+	    int ws_xpixel;
+	    int ws_ypixel;
+	}
+}
 
 public import core.sys.posix.sys.types;
 
@@ -450,10 +464,10 @@ struct Text_Viewer_State{
     long last_redraw;
     SDL_Texture *texture;
 
-    long mouse_offset;
-    long start_selection;
-    long end_selection;
-    long first_click;
+    ssize_t mouse_offset;
+    ssize_t start_selection;
+    ssize_t end_selection;
+    ssize_t first_click;
 
     Font font;
 }
@@ -977,19 +991,26 @@ class GlobalState
         deInitAllSDLLibs();
         if (restart)
         {
-            writefln("Restart");
-            int r = fork();
-            if (r < 0)
-            {
-                throw new Exception("fork() error: " ~ fromStringz(strerror(errno)).idup());
-            }
-            else if (r == 0)
-            {
-                Thread.sleep(2.seconds);
-                chdir(start_cwd);
-                execv(args[0], args);
-                assert(0);
-            }
+	    version (Posix)
+	    {
+		    writefln("Restart");
+		    int r = fork();
+		    if (r < 0)
+		    {
+			throw new Exception("fork() error: " ~ fromStringz(strerror(errno)).idup());
+		    }
+		    else if (r == 0)
+		    {
+			Thread.sleep(2.seconds);
+			chdir(start_cwd);
+			execv(args[0], args);
+			assert(0);
+		    }
+	    }
+	    else version (Windows)
+	    {
+		    writefln("Restart in windows version not supported. Exit.");
+	    }
         }
     }
 }

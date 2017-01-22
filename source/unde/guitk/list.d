@@ -14,6 +14,8 @@ import unde.keybar.lib;
 import unde.lib;
 import unde.tick;
 
+import berkeleydb.all: ssize_t;
+
 class List:UIEntry
 {
     private SDL_Rect _rect;
@@ -58,7 +60,7 @@ class List:UIEntry
         if (r < 0)
         {
             writefln( "List.on_draw(), 1: Error while render copy: %s",
-                    SDL_GetError().to!string() );
+                    SDL_GetError().fromStringz() );
         }
 
         if (y > 0)
@@ -104,7 +106,7 @@ class List:UIEntry
             if (!tt && !tt.texture)
             {
                 throw new Exception("Can't create text_surface: "~
-                        to!string(TTF_GetError()));
+                        TTF_GetError().fromStringz().idup());
             }
 
             if (y_off + tt.h < _rect.y)
@@ -134,7 +136,7 @@ class List:UIEntry
             {
                 writefln(
                         "List.on_draw(), 2: Error while render copy: %s", 
-                        SDL_GetError().to!string() );
+                        SDL_GetError().fromStringz() );
             }
 
             SDL_RenderSetClipRect(gs.renderer, null);

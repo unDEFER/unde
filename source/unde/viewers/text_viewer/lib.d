@@ -245,7 +245,7 @@ draw_text(GlobalState gs)
                     {
                         if (start_selection > offset)
                         {
-                            from = start_selection - offset;
+                            from = cast(ssize_t)(start_selection - offset);
                         }
                         if (offset > start_selection)
                         {
@@ -253,7 +253,7 @@ draw_text(GlobalState gs)
                         }
                         if (offset < end_selection)
                         {
-                            to = end_selection - offset;
+                            to = cast(ssize_t)(end_selection - offset);
                         }
                         if ( offset + line.length < end_selection )
                         {
@@ -275,9 +275,9 @@ draw_text(GlobalState gs)
 
                     if (gs.mouse_screen_y >= dst.y && gs.mouse_screen_y <= dst.y+dst.h)
                     {
-                        mouse_offset = offset + get_position_by_chars(
+                        mouse_offset = cast(ssize_t)(offset + get_position_by_chars(
                                 gs.mouse_screen_x - dst.x,
-                                gs.mouse_screen_y - dst.y, tt.chars);
+                                gs.mouse_screen_y - dst.y, tt.chars));
                     }
 
                     if (line_y + tt.h < 0)

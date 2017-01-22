@@ -1,7 +1,10 @@
 module unde.translations.lib;
+
 import core.stdc.locale;
 import std.process;
 import std.string;
+import std.stdio;
+import core.sys.windows.windows;
 
 static string[string][string] tr;
 static string locale;
@@ -24,5 +27,14 @@ static this()
         {
             locale = "ru";
         }
+    }
+    else
+    version (Windows)
+    {
+	auto lang = 0xFF & GetUserDefaultUILanguage();
+	if (lang == LANG_RUSSIAN)
+	{
+		locale = "ru";
+	}
     }
 }

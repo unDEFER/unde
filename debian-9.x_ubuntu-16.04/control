@@ -2,7 +2,7 @@ Source: unde
 Maintainer: Nikolay (unDEFER) Krivchenkov <undefer@gmail.com>
 Section: x11
 Priority: optional
-#Build-Depends: dub (>= 0.9.24)
+Build-Depends: libdb5.3-dev (>= 5.3.28)
 Standards-Version: 3.9.2
 Homepage: http://unde.su
 

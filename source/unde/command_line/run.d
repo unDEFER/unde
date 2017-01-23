@@ -317,8 +317,8 @@ process_escape_sequences(CMDGlobalState cgs,
                                     if (y >= scroll_to)
                                     {
                                         y--;
-                                        std.algorithm.mutation.copy(buffer[scroll_from*cols + cols..scroll_to*cols], 
-                                                buffer[scroll_from*cols..(scroll_to-1)*cols]);
+                                        std.algorithm.mutation.copy(cast(ubyte[])(buffer[scroll_from*cols + cols..scroll_to*cols]), 
+                                                cast(ubyte[])(buffer[scroll_from*cols..(scroll_to-1)*cols]));
                                         std.algorithm.mutation.copy(alt_attrs[scroll_from*cols + cols..scroll_to*cols], 
                                                 alt_attrs[scroll_from*cols..(scroll_to-1)*cols]);
                                         buffer[(scroll_to-1)*cols..scroll_to*cols] = " "d[0];
@@ -376,7 +376,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                             buf[max_r..buf_r+chrlen] = ' ';
                                             max_r = buf_r+chrlen;
                                         }
-                                        std.algorithm.mutation.copy(buf[buf_r+chrlen..max_r], buf[buf_r+1..max_r+1-chrlen]);
+                                        std.algorithm.mutation.copy(cast(ubyte[])(buf[buf_r+chrlen..max_r]), cast(ubyte[])(buf[buf_r+1..max_r+1-chrlen]));
                                         max_r += 1-chrlen;
                                     }
                                     buf[buf_r] = ' ';
@@ -408,8 +408,8 @@ process_escape_sequences(CMDGlobalState cgs,
                                         if (y >= scroll_to)
                                         {
                                             y--;
-                                            std.algorithm.mutation.copy(buffer[scroll_from*cols + cols..scroll_to*cols], 
-                                                    buffer[scroll_from*cols..(scroll_to-1)*cols]);
+                                            std.algorithm.mutation.copy(cast(ubyte[])(buffer[scroll_from*cols + cols..scroll_to*cols]), 
+                                                    cast(ubyte[])(buffer[scroll_from*cols..(scroll_to-1)*cols]));
                                             std.algorithm.mutation.copy(alt_attrs[scroll_from*cols + cols..scroll_to*cols], 
                                                     alt_attrs[scroll_from*cols..(scroll_to-1)*cols]);
                                             buffer[(scroll_to-1)*cols..scroll_to*cols] = " "d[0];
@@ -536,7 +536,7 @@ process_escape_sequences(CMDGlobalState cgs,
 
                                             if (max_r > buf_r+1)
                                             {
-                                                std.algorithm.mutation.copy(buf[buf_r+1..max_r], buf[buf_r+1+altmode.cols..max_r+altmode.cols]);
+                                                std.algorithm.mutation.copy(cast(ubyte[])(buf[buf_r+1..max_r]), cast(ubyte[])(buf[buf_r+1+altmode.cols..max_r+altmode.cols]));
                                                 attrs.length += altmode.cols;
                                                 std.algorithm.mutation.copy(attrs[attrs_r+1..$-altmode.cols], attrs[attrs_r+1+altmode.cols..$]);
                                                 buf[buf_r+1..max_r] = ' ';
@@ -565,7 +565,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                             buf[max_r..buf_r+chrlen] = ' ';
                                             max_r = buf_r+chrlen;
                                         }
-                                        std.algorithm.mutation.copy(buf[buf_r+chrlen..max_r], buf[buf_r+1..max_r+1-chrlen]);
+                                        std.algorithm.mutation.copy(cast(ubyte[])(buf[buf_r+chrlen..max_r]), cast(ubyte[])(buf[buf_r+1..max_r+1-chrlen]));
                                         max_r += 1-chrlen;
                                     }
                                     buf[buf_r] = prebuf[i];
@@ -611,8 +611,8 @@ process_escape_sequences(CMDGlobalState cgs,
                                         if (y >= scroll_to)
                                         {
                                             y--;
-                                            std.algorithm.mutation.copy(buffer[scroll_from*cols + cols..scroll_to*cols], 
-                                                    buffer[scroll_from*cols..(scroll_to-1)*cols]);
+                                            std.algorithm.mutation.copy(cast(ubyte[])(buffer[scroll_from*cols + cols..scroll_to*cols]), 
+                                                    cast(ubyte[])(buffer[scroll_from*cols..(scroll_to-1)*cols]));
                                             std.algorithm.mutation.copy(alt_attrs[scroll_from*cols + cols..scroll_to*cols], 
                                                     alt_attrs[scroll_from*cols..(scroll_to-1)*cols]);
                                             buffer[(scroll_to-1)*cols..scroll_to*cols] = " "d[0];
@@ -967,7 +967,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                         if (y >= rows)
                                         {
                                             y--;
-                                            std.algorithm.mutation.copy(buffer[cols..rows*cols], buffer[0..(rows-1)*cols]);
+                                            std.algorithm.mutation.copy(cast(ubyte[])(buffer[cols..rows*cols]), cast(ubyte[])(buffer[0..(rows-1)*cols]));
                                             std.algorithm.mutation.copy(alt_attrs[cols..rows*cols], alt_attrs[0..(rows-1)*cols]);
                                         }
                                     }
@@ -1226,8 +1226,8 @@ process_escape_sequences(CMDGlobalState cgs,
                                 case Mode.Alternate:
                                     with(altmode)
                                     {
-                                            std.algorithm.mutation.copy(buffer[(y+num)*cols..scroll_to*cols], 
-                                                    buffer[y*cols..(scroll_to-num)*cols]);
+                                            std.algorithm.mutation.copy(cast(ubyte[])(buffer[(y+num)*cols..scroll_to*cols]), 
+                                                    cast(ubyte[])(buffer[y*cols..(scroll_to-num)*cols]));
                                             std.algorithm.mutation.copy(alt_attrs[(y+num)*cols..scroll_to*cols], 
                                                     alt_attrs[y*cols..(scroll_to-num)*cols]);
                                             buffer[(scroll_to-num)*cols..scroll_to*cols] = " "d[0];
@@ -1283,7 +1283,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                     if (buf_r+bytes > eol) bytes = eol - buf_r;
                                     if (attrs_r+num > eol_attrs) num = eol_attrs - attrs_r;
                                     if (buf_r+bytes != eol)
-                                        std.algorithm.mutation.copy(buf[buf_r+bytes..eol], buf[buf_r..eol-bytes]);
+                                        std.algorithm.mutation.copy(cast(ubyte[])(buf[buf_r+bytes..eol]), cast(ubyte[])(buf[buf_r..eol-bytes]));
                                     if (attrs_r+num != eol_attrs)
                                         std.algorithm.mutation.copy(attrs[attrs_r+num..eol_attrs], attrs[attrs_r..eol_attrs-num]);
 
@@ -1299,7 +1299,7 @@ process_escape_sequences(CMDGlobalState cgs,
                                 case Mode.Alternate:
                                     with(altmode)
                                     {
-                                        std.algorithm.mutation.copy(buffer[y*cols+x+num..y*cols+cols], buffer[y*cols+x..y*cols+cols-num]);
+                                        std.algorithm.mutation.copy(cast(ubyte[])(buffer[y*cols+x+num..y*cols+cols]), cast(ubyte[])(buffer[y*cols+x..y*cols+cols-num]));
                                         std.algorithm.mutation.copy(alt_attrs[y*cols+x+num..y*cols+cols], alt_attrs[y*cols+x..y*cols+cols-num]);
 
                                         buffer[y*cols+cols-num..y*cols+cols] = " "d[0];
@@ -1707,7 +1707,7 @@ process_escape_sequences(CMDGlobalState cgs,
 
         if (i < r)
         {
-            std.algorithm.mutation.copy(prebuf[i..r], prebuf[0..r-i]);
+            std.algorithm.mutation.copy(cast(ubyte[])(prebuf[i..r]), cast(ubyte[])(prebuf[0..r-i]));
             prebuf_r = r-i;
         }
         else
@@ -1919,7 +1919,7 @@ version(Posix)
                     bool no_n = false;
                     if (split_r < r)
                     {
-                        std.algorithm.mutation.copy(buf[split_r..r], buf[0..r - split_r]);
+                        std.algorithm.mutation.copy(cast(ubyte[])(buf[split_r..r]), cast(ubyte[])(buf[0..r - split_r]));
                         max_r = r - split_r;
 
                         std.algorithm.mutation.copy(attrs[attrs_split_r..$], attrs[0..$ - attrs_split_r]);

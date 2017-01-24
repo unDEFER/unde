@@ -1,0 +1,24 @@
+Source: unde
+Maintainer: Nikolay (unDEFER) Krivchenkov <undefer@gmail.com>
+Section: x11
+Priority: optional
+Build-Depends: libdb5.3-dev (>= 5.3.28)
+Standards-Version: 3.9.2
+Homepage: http://unde.su
+
+Package: unde
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         libsdl2-2.0-0 (>= 2.0.2),
+         libsdl2-ttf-2.0-0 (>= 2.0.12),
+         libsdl2-image-2.0-0 (>= 2.0.0),
+         rsync (>= 3.1.0),
+         util-linux (>= 2.20.1),
+         coreutils (>= 8.21),
+         fonts-liberation (>= 1.07.3),
+         ttf-ancient-fonts (>= 2.57)
+Description: unDE is a recursive acronym for "unDE Is Not Desktop Environment"
+ Version 0.1.0 of unDE provides original file manager,
+ image viewer and text viewer.
+Homepage: http://unde.su

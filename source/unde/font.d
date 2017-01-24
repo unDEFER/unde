@@ -651,6 +651,14 @@ class Font
                     "/usr/share/fonts/liberation/LiberationMono-BoldItalic.ttf",
                     "/usr/share/fonts/dejavu/DejaVuSans.ttf"];
             }
+            else version (Ubuntu_14_04)
+            {
+                string[] font_list = ["/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationMono-Italic.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationMono-BoldItalic.ttf",
+                    "/usr/share/fonts/truetype/ttf-ancient-scripts/Symbola605.ttf"];
+            }
             else
             {
                 string[] font_list = ["/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",

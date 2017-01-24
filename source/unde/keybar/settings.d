@@ -13,6 +13,7 @@ import unde.guitk.label;
 import unde.guitk.list;
 import unde.guitk.textarea;
 import unde.translations.lib;
+import unde.lib;
 
 import std.stdio;
 import std.string;

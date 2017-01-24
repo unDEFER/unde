@@ -601,3 +601,16 @@ openFileByMime(GlobalState gs, string path)
         writeln(msg);
     }
 }
+
+static byte[byte] clear_check;
+
+static if (!__traits(hasMember, clear_check, "clear"))
+{
+	void clear(A, B) (A[B] a)
+	{
+		foreach (key; a.keys)
+		{
+			a.remove(key);
+		}
+	}
+}

@@ -10,6 +10,7 @@ import std.string;
 import unde.global_state;
 import unde.guitk.lib;
 import unde.keybar.lib;
+import unde.lib;
 
 class Background:UIEntry
 {

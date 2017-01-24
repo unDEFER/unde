@@ -105,7 +105,7 @@ change_rights_ang_save_errors(FMGlobalState cgs, PathMnt path, mode_t mode)
 }
 
 private void
-change_rights(FMGlobalState cgs, PathMnt path, bool set, int bit, DirOrFile dof, bool recursive)
+change_rights_private(FMGlobalState cgs, PathMnt path, bool set, int bit, DirOrFile dof, bool recursive)
 {
     //writefln("remove_path(%s)", path);
     // exits on exits of parent
@@ -183,7 +183,7 @@ change_rights(FMGlobalState cgs, PathMnt path, bool set, int bit, DirOrFile dof,
                 {
                     if (name != path)
                     {
-                        change_rights(cgs, path.next(name), set, bit, dof, recursive);
+                        change_rights_private(cgs, path.next(name), set, bit, dof, recursive);
                     }
                 }
             }
@@ -228,7 +228,7 @@ start_change_rights(shared LsblkInfo[string] lsblk, immutable string[] paths,
         sort!("a < b")(paths_dup);
         foreach(path; paths_dup)
         {
-            change_rights(cgs, PathMnt(cgs.lsblk, path), set, bit, dof, recursive);
+            change_rights_private(cgs, PathMnt(cgs.lsblk, path), set, bit, dof, recursive);
         }
         //txn.commit();
     } catch (shared(Throwable) exc) {

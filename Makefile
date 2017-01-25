@@ -12,7 +12,8 @@ unde: dub.json
 	grep -q 14.04 /etc/lsb-release && OPTIONS="$$OPTIONS -c Ubuntu_14_04";\
 	dub build $$OPTIONS
 
-install: all
+install:
+	install -d $(BIN)
 	install unde $(BIN)/unde
 	install -d $(SHARE)/layouts 
 	for file in $$(find layouts -type f -name "*"); do \

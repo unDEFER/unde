@@ -29,6 +29,10 @@
 		"name": "OpenSUSE",
 		"versions": ["OpenSUSE"],
 		"lflags": ["-L/usr/local/BerkeleyDB.5.3/lib64/"]
+	},
+	{
+		"name": "Manjaro",
+		"versions": ["Manjaro"]
 	}
     ]
 }

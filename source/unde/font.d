@@ -643,7 +643,15 @@ class Font
 
         version (linux)
         {
-            version(OpenSUSE)
+            version(Manjaro)
+            {
+		string[] font_list = ["/usr/share/fonts/TTF/LiberationMono-Regular.ttf",
+			"/usr/share/fonts/TTF/LiberationMono-Bold.ttf",
+			"/usr/share/fonts/TTF/LiberationMono-Italic.ttf",
+			"/usr/share/fonts/TTF/LiberationMono-BoldItalic.ttf",
+			"/usr/share/fonts/TTF/Symbola.ttf"];
+	    }
+	    else version(OpenSUSE)
             {
 		string[] font_list = ["/usr/share/fonts/truetype/LiberationMono-Regular.ttf",
 			"/usr/share/fonts/truetype/LiberationMono-Bold.ttf",

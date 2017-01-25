@@ -33,6 +33,10 @@
 	{
 		"name": "Manjaro",
 		"versions": ["Manjaro"]
+	},
+	{
+		"name": "Mageia",
+		"versions": ["Mageia"]
 	}
     ]
 }

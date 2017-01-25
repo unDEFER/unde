@@ -643,7 +643,15 @@ class Font
 
         version (linux)
         {
-            version(Manjaro)
+            version(Mageia)
+            {
+		string[] font_list = ["/usr/share/fonts/TTF/liberation/LiberationMono-Regular.ttf",
+			"/usr/share/fonts/TTF/liberation/LiberationMono-Bold.ttf",
+			"/usr/share/fonts/TTF/liberation/LiberationMono-Italic.ttf",
+			"/usr/share/fonts/TTF/liberation/LiberationMono-BoldItalic.ttf",
+			"/usr/share/fonts/gdouros-symbola/Symbola.ttf"];
+	    }
+	    else version(Manjaro)
             {
 		string[] font_list = ["/usr/share/fonts/TTF/LiberationMono-Regular.ttf",
 			"/usr/share/fonts/TTF/LiberationMono-Bold.ttf",

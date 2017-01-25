@@ -24,6 +24,11 @@
 	{
 		"name": "Ubuntu_14_04",
 		"versions": ["Ubuntu_14_04"]
+	},
+	{
+		"name": "OpenSUSE",
+		"versions": ["OpenSUSE"],
+		"lflags": ["-L/usr/local/BerkeleyDB.5.3/lib64/"]
 	}
     ]
 }

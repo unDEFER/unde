@@ -643,7 +643,15 @@ class Font
 
         version (linux)
         {
-            version(Fedora)
+            version(OpenSUSE)
+            {
+		string[] font_list = ["/usr/share/fonts/truetype/LiberationMono-Regular.ttf",
+			"/usr/share/fonts/truetype/LiberationMono-Bold.ttf",
+			"/usr/share/fonts/truetype/LiberationMono-Italic.ttf",
+			"/usr/share/fonts/truetype/LiberationMono-BoldItalic.ttf",
+			"/usr/share/fonts/truetype/Symbola.ttf"];
+            }
+            else version(Fedora)
             {
                 string[] font_list = ["/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
                     "/usr/share/fonts/liberation/LiberationMono-Bold.ttf",
